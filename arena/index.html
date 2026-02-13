@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WARGROUNDS — Swarm</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Main menu -->
+    <div id="menu" class="screen active">
+      <div class="menu-bg">
+        <div class="grid-overlay"></div>
+        <div class="vignette"></div>
+        <div class="scanline"></div>
+      </div>
+      <header class="menu-header">
+        <span class="menu-label">// SWARM</span>
+        <h1 class="menu-title">
+          <span class="title-main">WARGROUNDS</span>
+          <span class="title-tld">.ONLINE</span>
+        </h1>
+        <p class="menu-sub">BUILD YOUR HIVE. UNLOCK PETALS. DOMINATE.</p>
+      </header>
+      <nav class="menu-actions">
+        <button type="button" id="btn-play" class="btn btn-primary">
+          <span class="btn-text">DEPLOY</span>
+          <span class="btn-glow"></span>
+        </button>
+        <button type="button" id="btn-lobby" class="btn btn-ghost">
+          <span class="btn-text">LOBBY — PLAY WITH FRIENDS</span>
+        </button>
+        <button type="button" id="btn-settings" class="btn btn-ghost" disabled>
+          <span class="btn-text">SETTINGS</span>
+        </button>
+      </nav>
+      <footer class="menu-footer">
+        <span class="footer-stat">v0.1.0</span>
+        <span class="footer-stat">WARGROUNDS.ONLINE/SWARM</span>
+      </footer>
+    </div>
+
+    <!-- Lobby screen -->
+    <div id="lobby" class="screen">
+      <div class="menu-bg">
+        <div class="grid-overlay"></div>
+        <div class="vignette"></div>
+      </div>
+      <header class="lobby-header">
+        <span class="menu-label">// LOBBY</span>
+        <h2 class="lobby-title">PLAY WITH FRIENDS</h2>
+      </header>
+      <div class="lobby-actions">
+        <button type="button" id="btn-create-room" class="btn btn-primary">
+          <span class="btn-text">CREATE ROOM</span>
+        </button>
+        <div class="lobby-divider">— OR —</div>
+        <div class="lobby-join">
+          <input type="text" id="room-code-input" class="lobby-input" placeholder="ROOM CODE" maxlength="6" />
+          <button type="button" id="btn-join-room" class="btn btn-ghost">JOIN</button>
+        </div>
+        <div id="lobby-room-section" class="lobby-room hidden">
+          <span class="lobby-room-label">ROOM CODE</span>
+          <span id="lobby-room-code" class="lobby-room-code">------</span>
+          <p class="lobby-room-hint">Share with friends · They enter this code to join</p>
+          <button type="button" id="btn-start-from-lobby" class="btn btn-primary">START GAME</button>
+        </div>
+        <button type="button" id="btn-lobby-back" class="btn btn-ghost">BACK</button>
+      </div>
+    </div>
+
+    <!-- Game screen -->
+    <div id="game-screen" class="screen">
+      <canvas id="game-canvas"></canvas>
+      <div id="hud">
+        <div class="hud-top">
+          <div class="hud-panel hud-score">
+            <span class="hud-label">SCORE</span>
+            <span id="hud-score-value" class="hud-value">0</span>
+          </div>
+          <div class="hud-panel hud-zone">
+            <span class="hud-label">ZONE</span>
+            <span id="hud-zone-value" class="hud-value">SAFE</span>
+          </div>
+          <div class="hud-panel hud-level">
+            <span class="hud-label">LVL</span>
+            <span id="hud-level-value" class="hud-value">1</span>
+            <span id="hud-xp-next" class="hud-xp-next">0 / 100</span>
+            <div class="bar-wrap bar-xp">
+              <div id="hud-xp-bar" class="bar-fill" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="hud-panel hud-tier">
+            <span class="hud-label">TIER</span>
+            <span id="hud-tier-value" class="hud-value">COMMON</span>
+            <span id="hud-tier-next" class="hud-xp-next">0/3 to next</span>
+          </div>
+          <div class="hud-panel hud-ping">
+            <span class="hud-label">LATENCY</span>
+            <span id="hud-ping-value" class="hud-value">—</span>
+          </div>
+        </div>
+        <div class="hud-bottom">
+          <div class="hud-panel hud-health">
+            <span class="hud-label">INTEGRITY</span>
+            <div class="bar-wrap">
+              <div id="hud-health-bar" class="bar-fill" style="width: 100%"></div>
+              <div class="bar-edge"></div>
+            </div>
+            <span id="hud-health-value" class="hud-value">100 / 100</span>
+          </div>
+          <div class="hud-panel hud-minimap">
+            <span class="hud-label">RADAR</span>
+            <canvas id="minimap"></canvas>
+          </div>
+        </div>
+        <div id="upgrade-bars" class="upgrade-bars">
+          <span class="upgrade-points"><span id="upgrade-points-value">0</span> PT</span>
+          <button type="button" class="upgrade-bar" data-stat="move" data-key="1" title="Movement Speed [1]"><span class="upgrade-bar-label">1 SPD</span><span class="upgrade-bar-fill-wrap"><span id="stat-move" class="upgrade-bar-fill"></span></span></button>
+          <button type="button" class="upgrade-bar" data-stat="damage" data-key="2" title="Bullet Damage [2]"><span class="upgrade-bar-label">2 DMG</span><span class="upgrade-bar-fill-wrap"><span id="stat-damage" class="upgrade-bar-fill"></span></span></button>
+          <button type="button" class="upgrade-bar" data-stat="health" data-key="3" title="Max Health [3]"><span class="upgrade-bar-label">3 HP</span><span class="upgrade-bar-fill-wrap"><span id="stat-health" class="upgrade-bar-fill"></span></span></button>
+          <button type="button" class="upgrade-bar" data-stat="regen" data-key="4" title="Regen [4]"><span class="upgrade-bar-label">4 REG</span><span class="upgrade-bar-fill-wrap"><span id="stat-regen" class="upgrade-bar-fill"></span></span></button>
+          <button type="button" class="upgrade-bar" data-stat="pet" data-key="5" title="Pet [5]"><span class="upgrade-bar-label">5 PET</span><span class="upgrade-bar-fill-wrap"><span id="stat-pet" class="upgrade-bar-fill"></span></span></button>
+          <button type="button" class="upgrade-bar" data-stat="reload" data-key="6" title="Fire Rate [6]"><span class="upgrade-bar-label">6 RLD</span><span class="upgrade-bar-fill-wrap"><span id="stat-reload" class="upgrade-bar-fill"></span></span></button>
+          <button type="button" class="upgrade-bar" data-stat="range" data-key="7" title="Bullet Range [7]"><span class="upgrade-bar-label">7 RGE</span><span class="upgrade-bar-fill-wrap"><span id="stat-range" class="upgrade-bar-fill"></span></span></button>
+        </div>
+        <p class="upgrade-hint">Press 1–7 to spend points · 7 RGE = rotating bees (range)</p>
+      </div>
+      <div id="game-overlay">
+        <div id="overlay-respawn" class="overlay-panel overlay-respawn-menu hidden">
+          <span class="overlay-title">UNIT DESTROYED</span>
+          <div class="overlay-respawn-actions">
+            <button type="button" id="btn-respawn" class="btn btn-primary"><span class="btn-text">RESPAWN</span></button>
+            <button type="button" id="btn-return-home" class="btn btn-ghost"><span class="btn-text">RETURN TO HOME</span></button>
+          </div>
+        </div>
+        <div id="overlay-level-up">LEVEL UP</div>
+        <div id="overlay-combo" class="overlay-combo"></div>
+        <div id="overlay-tier" class="overlay-tier"></div>
+        <div id="overlay-damage"></div>
+        <div id="overlay-tank-pick" class="overlay-tank-pick">
+          <span class="overlay-tank-pick-title">BEES & PETALS</span>
+          <span id="overlay-tank-pick-tier" class="overlay-tank-pick-tier">LVL 20</span>
+          <div id="overlay-tank-pick-options" class="overlay-tank-pick-options"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="js/game.js"></script>
+</body>
+</html>

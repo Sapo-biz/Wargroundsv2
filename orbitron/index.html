@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Orbitron — Orbital Survival</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%2300f0ff'/><circle cx='30' cy='40' r='8' fill='%23ff6b00'/><circle cx='70' cy='60' r='6' fill='%23c084fc'/></svg>">
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Main Menu -->
+    <div id="mainMenu" class="screen">
+        <div class="menu-container">
+            <h1 class="game-title">ORBITRON</h1>
+            <p class="subtitle">Orbital Survival</p>
+            <div class="menu-stats" id="menuStats"></div>
+            <button class="btn btn-play" id="btnPlay">PLAY</button>
+            <button class="btn btn-secondary" id="btnUpgrades">PERMANENT UPGRADES</button>
+            <button class="btn btn-secondary" id="btnStash">PERMANENT STASH</button>
+            <button class="btn btn-secondary" id="btnAchievements">ACHIEVEMENTS</button>
+            <div class="controls-hint">
+                <p>WASD / Arrow Keys to move</p>
+                <p>SPACE = Extend Petals | SHIFT = Retract Petals</p>
+                <p>Q = Dash | E = Equip Loot | O = Store in Inventory</p>
+                <p>1-9 = Move loadout petal to inventory</p>
+                <p>Click inventory items to equip</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upgrade Shop (Prestige) -->
+    <div id="upgradeShop" class="screen hidden">
+        <div class="shop-container">
+            <h2>PERMANENT UPGRADES</h2>
+            <p class="currency-display">Stardust: <span id="stardustCount">0</span> ✦</p>
+            <div id="shopItems" class="shop-grid"></div>
+            <button class="btn btn-secondary" id="btnBackShop">BACK</button>
+        </div>
+    </div>
+
+    <!-- Achievement Screen -->
+    <div id="achievementScreen" class="screen hidden">
+        <div class="achievement-container">
+            <h2>ACHIEVEMENTS</h2>
+            <div id="achievementList" class="achievement-grid"></div>
+            <button class="btn btn-secondary" id="btnBackAch">BACK</button>
+        </div>
+    </div>
+
+    <!-- Level Up Screen -->
+    <div id="levelUpScreen" class="screen hidden">
+        <div class="levelup-container">
+            <h2 class="levelup-title">LEVEL UP!</h2>
+            <p class="levelup-subtitle">Choose an upgrade</p>
+            <div id="upgradeChoices" class="upgrade-grid"></div>
+        </div>
+    </div>
+
+    <!-- Death Screen -->
+    <div id="deathScreen" class="screen hidden">
+        <div class="death-container">
+            <h2 class="death-title">DESTROYED</h2>
+            <div id="deathStats" class="death-stats"></div>
+            <div id="petalPickSection" class="petal-pick-section hidden">
+                <h3 class="petal-pick-title">SAVE A PETAL</h3>
+                <p class="petal-pick-subtitle">Choose one petal to keep permanently</p>
+                <div id="petalPickGrid" class="petal-pick-grid"></div>
+            </div>
+            <button class="btn btn-play" id="btnRestart">TRY AGAIN</button>
+            <button class="btn btn-secondary" id="btnMainMenu">MAIN MENU</button>
+        </div>
+    </div>
+
+    <!-- Permanent Stash Screen -->
+    <div id="permStashScreen" class="screen hidden">
+        <div class="stash-container">
+            <h2>PERMANENT STASH</h2>
+            <p class="stash-subtitle">Petals saved from past runs</p>
+            <div id="permStashGrid" class="perm-stash-grid"></div>
+            <p id="stashEmpty" class="stash-empty">No petals saved yet. Survive a run and save one!</p>
+            <button class="btn btn-secondary" id="btnBackStash">BACK</button>
+        </div>
+    </div>
+
+    <!-- Pre-Run Petal Selection -->
+    <div id="preRunScreen" class="screen hidden">
+        <div class="prerun-container">
+            <h2>CHOOSE A STARTING PETAL</h2>
+            <p class="prerun-subtitle">Pick a petal from your stash to start with, or skip</p>
+            <div id="preRunGrid" class="prerun-grid"></div>
+            <button class="btn btn-play" id="btnSkipPetal">START WITHOUT</button>
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+        <div class="hud-top">
+            <div class="hud-hp">
+                <div class="hp-bar-bg">
+                    <div class="hp-bar-fill" id="hpBar"></div>
+                    <span class="hp-text" id="hpText"></span>
+                </div>
+            </div>
+            <div class="hud-xp">
+                <div class="xp-bar-bg">
+                    <div class="xp-bar-fill" id="xpBar"></div>
+                    <span class="xp-text" id="xpText"></span>
+                </div>
+            </div>
+        </div>
+        <div class="hud-left">
+            <div class="wave-display" id="waveDisplay">Wave 1</div>
+            <div class="zone-display" id="zoneDisplay">Meadow</div>
+            <div class="kill-streak" id="killStreak"></div>
+            <div class="timer-display" id="timerDisplay">0:00</div>
+        </div>
+        <div class="hud-right">
+            <div class="stats-panel" id="statsPanel"></div>
+        </div>
+        <div class="inventory-panel" id="inventoryPanel">
+            <div class="inventory-header">INVENTORY <span class="inv-count" id="inventoryCount">0</span></div>
+            <div class="inventory-grid" id="inventoryGrid"></div>
+            <div class="inventory-merge" id="inventoryMerge"></div>
+        </div>
+        <div class="hud-bottom">
+            <div class="orbital-slots" id="orbitalSlots"></div>
+        </div>
+        <div class="minimap-container">
+            <canvas id="minimap" width="150" height="150"></canvas>
+        </div>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="js/config.js"></script>
+    <script src="js/engine.js"></script>
+    <script src="js/particles.js"></script>
+    <script src="js/entities.js"></script>
+    <script src="js/systems.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

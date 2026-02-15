@@ -7,7 +7,7 @@ class WaveSystem {
     constructor(game) {
         this.game = game;
         this.wave = 0;
-        this.timer = 5; // 5s grace period
+        this.timer = 3; // 3s grace period
         this.spawnTimer = 0;
         this.enemiesThisWave = 0;
         this.enemiesToSpawn = 0;
@@ -111,8 +111,8 @@ class WaveSystem {
             this.spawnTimer -= dt;
             if (this.spawnTimer <= 0) {
                 this.spawnEnemy();
-                // Faster spawning in later waves
-                this.spawnTimer = Math.max(0.03, 0.2 - this.wave * 0.004);
+                // Faster spawning in later waves (3x base rate)
+                this.spawnTimer = Math.max(0.01, (0.2 - this.wave * 0.004) / 3);
             }
         }
 
@@ -146,7 +146,8 @@ class UpgradeSystem {
             if (roll < 0.35 && player.orbitals.length < player.maxSlots) {
                 // New orbital
                 const type = randomOrbitalType();
-                const rarity = rollRarity(player.luck);
+                const currentWave = this.game.waveSystem ? this.game.waveSystem.wave : 1;
+                const rarity = rollRarity(player.luck, currentWave);
                 const rarityData = RARITIES[rarity];
                 const cfg = ORBITAL_TYPES[type];
                 choices.push({
@@ -273,6 +274,8 @@ class SaveSystem {
             prestiges: 0,
             totalPlayTime: 0,
             permInventory: [],
+            activeSkin: 'default',
+            unlockedSkins: ['default'],
         };
     }
 
@@ -330,7 +333,8 @@ function tryDropLoot(game, enemy) {
     // Roll rarity (boss gets MUCH better rarity)
     let luckMult = player.luck * zone.dropBonus;
     if (enemy.isBoss) luckMult *= 8; // bosses drop way rarer loot
-    const rarity = rollRarity(luckMult);
+    const currentWave = game.waveSystem ? game.waveSystem.wave : 1;
+    const rarity = rollRarity(luckMult, currentWave);
     const type = randomOrbitalType();
 
     game.lootDrops.push(new LootDrop(enemy.x, enemy.y, type, rarity));

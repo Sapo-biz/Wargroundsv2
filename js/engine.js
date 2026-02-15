@@ -41,9 +41,13 @@ class InputManager {
         this.mouseX = 0; this.mouseY = 0;
         this.mouseDown = false;
         window.addEventListener('keydown', e => {
+            // Allow typing in inputs/selects without triggering game controls
+            const inInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT';
+            if (inInput) return;
             this.keys[e.key.toLowerCase()] = true; this.keys[e.code] = true;
-            // Prevent space/shift from scrolling
-            if (e.key === ' ' || e.key === 'Shift' || e.key === 'e' || e.key === 'E' || e.key === 'o' || e.key === 'O') e.preventDefault();
+            if (e.key === ' ' || e.key === 'Shift' || e.key === 'e' || e.key === 'E' || e.key === 'o' || e.key === 'O'
+                || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight'
+                || e.key === '/' || e.key === ',' || e.key === '.') e.preventDefault();
         });
         window.addEventListener('keyup', e => { this.keys[e.key.toLowerCase()] = false; this.keys[e.code] = false; });
         window.addEventListener('mousemove', e => { this.mouseX = e.clientX; this.mouseY = e.clientY; });
@@ -71,6 +75,26 @@ class InputManager {
         if (this.keys['s'] || this.keys['arrowdown'])  dy += 1;
         if (this.keys['a'] || this.keys['arrowleft'])  dx -= 1;
         if (this.keys['d'] || this.keys['arrowright']) dx += 1;
+        const len = Math.hypot(dx, dy);
+        if (len > 0) { dx /= len; dy /= len; }
+        return { dx, dy };
+    }
+    getMoveDirWASD() {
+        let dx = 0, dy = 0;
+        if (this.keys['w']) dy -= 1;
+        if (this.keys['s']) dy += 1;
+        if (this.keys['a']) dx -= 1;
+        if (this.keys['d']) dx += 1;
+        const len = Math.hypot(dx, dy);
+        if (len > 0) { dx /= len; dy /= len; }
+        return { dx, dy };
+    }
+    getMoveDirArrows() {
+        let dx = 0, dy = 0;
+        if (this.keys['arrowup'])    dy -= 1;
+        if (this.keys['arrowdown'])  dy += 1;
+        if (this.keys['arrowleft'])  dx -= 1;
+        if (this.keys['arrowright']) dx += 1;
         const len = Math.hypot(dx, dy);
         if (len > 0) { dx /= len; dy /= len; }
         return { dx, dy };

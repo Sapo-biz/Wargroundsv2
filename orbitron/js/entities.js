@@ -4,8 +4,9 @@
 
 // ─── Player ───
 class Player {
-    constructor(game) {
+    constructor(game, controlScheme = 0) {
         this.game = game;
+        this.controlScheme = controlScheme; // 0 = normal, 1 = WASD only (PVP P1), 2 = Arrows only (PVP P2)
         this.x = CONFIG.WORLD_SIZE / 2;
         this.y = CONFIG.WORLD_SIZE / 2;
         this.radius = CONFIG.BASE_PLAYER_RADIUS;
@@ -42,12 +43,12 @@ class Player {
     }
 
     get maxHp() {
-        const levelMult = 1 + (this.level - 1) * 0.02; // +2% per level
+        const levelMult = 1 + (this.level - 1) * 0.03; // +3% per level
         return (this.baseStats.maxHp + this.statBonuses.maxHp) * levelMult * (1 + this.game.permBonus('pMaxHp'));
     }
     get hpRegen() {
-        const levelMult = 1 + (this.level - 1) * 0.01; // +1% per level
-        return (this.baseStats.hpRegen + this.statBonuses.hpRegen) * levelMult * (1 + this.game.permBonus('pRegen'));
+        // 1/100th of max HP per second, plus perm bonus
+        return (this.maxHp / 100) * (1 + this.game.permBonus('pRegen'));
     }
     get speed() {
         return this.baseStats.speed * this.statBonuses.speed * (1 + this.game.permBonus('pSpeed'));
@@ -110,21 +111,22 @@ class Player {
     }
 
     takeDamage(dmg) {
-        if (this.invulnTimer > 0) return;
+        // God mode check
+        if (this.game.godMode && this.controlScheme !== 2) return;
         // Apply armor
         dmg = Math.max(1, dmg - this.armor);
         // Apply shield
         dmg *= (1 - this.getShieldBlock());
         this.hp -= dmg;
-        this.invulnTimer = CONFIG.INVULN_TIME;
         this.damageFlash = 0.15;
-        this.game.camera.addShake(0.2);
         this.game.audio.play('hit');
         this.game.particles.burst(this.x, this.y, 6, '#ff4444', 100, 0.3, 3);
         this.game.particles.damageNumber(this.x, this.y, dmg, '#ff6666');
         if (this.hp <= 0) {
             this.hp = 0;
-            this.game.onDeath();
+            if (!this.game.pvpMode) {
+                this.game.onDeath();
+            }
         }
     }
 
@@ -155,15 +157,30 @@ class Player {
     }
 
     update(dt, input) {
-        // Movement
-        const move = input.getMoveDir();
+        // Movement - control scheme determines keys
+        let move, wantExtend, wantRetract, wantDash;
+        if (this.controlScheme === 2) {
+            move = input.getMoveDirArrows();
+            wantExtend = input.keys['.'] || input.keys['Period'];
+            wantRetract = input.keys[','] || input.keys['Comma'];
+            wantDash = input.keys['/'] || input.keys['Slash'];
+        } else if (this.game.pvpMode) {
+            move = input.getMoveDirWASD();
+            wantExtend = input.keys[' '] || input.keys['Space'];
+            wantRetract = input.keys['shift'] || input.keys['ShiftLeft'] || input.keys['ShiftRight'];
+            wantDash = input.keys['q'] || input.keys['KeyQ'];
+        } else {
+            move = input.getMoveDir();
+            wantExtend = input.keys[' '] || input.keys['Space'];
+            wantRetract = input.keys['shift'] || input.keys['ShiftLeft'] || input.keys['ShiftRight'];
+            wantDash = input.keys['q'] || input.keys['KeyQ'];
+        }
         let moveSpeed = this.speed;
 
-        // Dash (Space double-tap or just space for extend, we use space=extend shift=retract)
-        // Petal control: Space extends orbitals out, Shift pulls them in
-        if (input.keys[' '] || input.keys['Space']) {
+        // Petal control
+        if (wantExtend) {
             this.targetOrbitDistMult = 2.5;
-        } else if (input.keys['shift'] || input.keys['ShiftLeft'] || input.keys['ShiftRight']) {
+        } else if (wantRetract) {
             this.targetOrbitDistMult = 0.35;
         } else {
             this.targetOrbitDistMult = 1.0;
@@ -171,9 +188,9 @@ class Player {
         // Smooth lerp orbit distance
         this.orbitDistMult += (this.targetOrbitDistMult - this.orbitDistMult) * 10 * dt;
 
-        // Dash ability (press Q to dash in move direction)
+        // Dash ability
         if (this.dashCooldown > 0) this.dashCooldown -= dt;
-        if ((input.keys['q'] || input.keys['KeyQ']) && this.dashCooldown <= 0 && (move.dx !== 0 || move.dy !== 0)) {
+        if (wantDash && this.dashCooldown <= 0 && (move.dx !== 0 || move.dy !== 0)) {
             this.dashTimer = 0.15;
             this.dashDirX = move.dx;
             this.dashDirY = move.dy;
@@ -206,7 +223,10 @@ class Player {
         this.trailTimer -= dt;
         if (this.trailTimer <= 0 && (move.dx !== 0 || move.dy !== 0)) {
             this.trailTimer = 0.05;
-            this.game.particles.trail(this.x, this.y, '#00bbff', 3);
+            const skinId = this.game.saveData ? this.game.saveData.activeSkin : 'default';
+            const skin = PLAYER_SKINS.find(s => s.id === skinId) || PLAYER_SKINS[0];
+            const trailCol = this.controlScheme === 2 ? '#ff4444' : (skin.trailColor === 'prism' ? `hsl(${(Date.now() * 0.15) % 360}, 85%, 60%)` : skin.trailColor);
+            this.game.particles.trail(this.x, this.y, trailCol, 3);
         }
         // Update orbitals
         for (const o of this.orbitals) {
@@ -233,6 +253,19 @@ class Player {
         const sx = camera.screenX(this.x);
         const sy = camera.screenY(this.y);
 
+        // Resolve skin
+        const skinId = this.game.saveData ? this.game.saveData.activeSkin : 'default';
+        const skin = PLAYER_SKINS.find(s => s.id === skinId) || PLAYER_SKINS[0];
+        const isPrism = skin.bodyColor === 'prism';
+        const bodyColorBase = isPrism ? `hsl(${(Date.now() * 0.15) % 360}, 85%, 60%)` : skin.bodyColor;
+        const glowColorBase = isPrism ? bodyColorBase : skin.glowColor;
+        const highlightCol = skin.highlightColor;
+
+        // Override for P2 in PVP
+        const isP2 = this.controlScheme === 2;
+        const bodyColor = isP2 ? '#ff5555' : (this.invulnTimer > 0 ? '#ffffff' : bodyColorBase);
+        const glowColor = isP2 ? '#cc3333' : glowColorBase;
+
         // Pickup range indicator
         ctx.globalAlpha = 0.05;
         ctx.beginPath(); ctx.arc(sx, sy, this.pickupRange, 0, Math.PI * 2);
@@ -240,15 +273,14 @@ class Player {
         ctx.globalAlpha = 1;
 
         // Body glow
-        drawGlow(ctx, sx, sy, this.radius + 5, '#00aaff', 0.4);
+        drawGlow(ctx, sx, sy, this.radius + 5, glowColor, 0.4);
 
         // Body
         const flashAlpha = this.damageFlash > 0 ? 0.5 + Math.sin(Date.now() * 0.05) * 0.5 : 1;
-        const bodyColor = this.invulnTimer > 0 ? '#ffffff' : '#00ccff';
         drawCircle(ctx, sx, sy, this.radius, bodyColor, flashAlpha);
 
         // Inner highlight
-        drawCircle(ctx, sx - 4, sy - 4, this.radius * 0.4, '#aaeeff', 0.6);
+        drawCircle(ctx, sx - 4, sy - 4, this.radius * 0.4, isP2 ? '#ffaaaa' : highlightCol, 0.6);
 
         // Dash cooldown ring
         if (this.dashCooldown > 0) {
@@ -384,9 +416,18 @@ class Orbital {
         // Ranged (shooter)
         if (cfg.type === 'ranged' && this.attackTimer <= 0) {
             let nearest = null, nearDist = cfg.range;
-            for (const e of game.enemies) {
-                const d = Math.hypot(e.x - pos.x, e.y - pos.y);
-                if (d < nearDist) { nearDist = d; nearest = e; }
+            if (game.pvpMode) {
+                // In PVP, target the opposing player
+                const target = player.controlScheme === 1 ? game.player2 : game.player;
+                if (target && target.hp > 0) {
+                    const d = Math.hypot(target.x - pos.x, target.y - pos.y);
+                    if (d < cfg.range) { nearest = target; nearDist = d; }
+                }
+            } else {
+                for (const e of game.enemies) {
+                    const d = Math.hypot(e.x - pos.x, e.y - pos.y);
+                    if (d < nearDist) { nearDist = d; nearest = e; }
+                }
             }
             if (nearest) {
                 const angle = Math.atan2(nearest.y - pos.y, nearest.x - pos.x);

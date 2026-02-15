@@ -13,7 +13,7 @@ const CONFIG = {
     BASE_ORBITAL_SPEED: 2.5,
     MAX_ENEMIES: 600,
     WAVE_DURATION: 20,        // seconds between waves
-    BOSS_EVERY: 1,            // boss every N waves
+    BOSS_EVERY: 5,            // boss every N waves
     XP_CURVE_BASE: 30,
     XP_CURVE_MULT: 1.18,
     INVULN_TIME: 0.5,
@@ -39,13 +39,52 @@ const RARITIES = {
 };
 const RARITY_ORDER = Object.keys(RARITIES);
 
-function rollRarity(luckMult = 1) {
+// Wave-based rarity caps — percentage chance each rarity CAN appear
+// Interpolated smoothly between defined wave breakpoints
+const WAVE_RARITY_TABLE = [
+    // wave: [common, uncommon, rare, epic, legendary, mythic, divine, cosmic, eternal]
+    // Bosses spawn every 5 waves — rarity gates tied to boss progression
+    { wave: 1,   rates: [100,  80,   50,   10,    1,    0,     0,     0,     0] },
+    { wave: 5,   rates: [100, 99.6, 92.7, 41.1,  4.5,  0.3, 0.001,    0,    0] },
+    { wave: 10,  rates: [100,  100, 94.8, 72.2, 14.7,  0.9,  0.02,    0,    0] },
+    { wave: 15,  rates: [100,  100, 99.9, 95.5, 47.7,  3.1,   0.1,    0,    0] },
+    { wave: 20,  rates: [100,  100,  100,  100, 79.2, 17.7,   1.9, 0.03, 0.03] },
+    { wave: 25,  rates: [100,  100,  100,  100, 99.8, 41.9,   7.6,  0.2,  0.5] },
+    { wave: 30,  rates: [100,  100,  100,  100,  100, 82.7,  21.6,  1.1,  1.1] },
+    { wave: 35,  rates: [100,  100,  100,  100,  100, 99.8,  44.1,  2.1,  2.1] },
+    { wave: 40,  rates: [100,  100,  100,  100,  100,  100,  67.6,  5.7,  5.7] },
+    { wave: 50,  rates: [100,  100,  100,  100,  100,  100,  90.0, 15.0, 15.0] },
+    { wave: 60,  rates: [100,  100,  100,  100,  100,  100,  100,  35.0, 35.0] },
+    { wave: 75,  rates: [100,  100,  100,  100,  100,  100,  100,  60.0, 60.0] },
+    { wave: 100, rates: [100,  100,  100,  100,  100,  100,  100,  100,  100] },
+];
+
+function getWaveRarityCaps(wave) {
+    const t = WAVE_RARITY_TABLE;
+    if (wave <= t[0].wave) return t[0].rates;
+    if (wave >= t[t.length - 1].wave) return t[t.length - 1].rates;
+    for (let i = 0; i < t.length - 1; i++) {
+        if (wave >= t[i].wave && wave <= t[i + 1].wave) {
+            const frac = (wave - t[i].wave) / (t[i + 1].wave - t[i].wave);
+            return t[i].rates.map((v, j) => v + (t[i + 1].rates[j] - v) * frac);
+        }
+    }
+    return t[t.length - 1].rates;
+}
+
+function rollRarity(luckMult = 1, wave = 20) {
+    const caps = getWaveRarityCaps(wave);
     const weights = [];
     let total = 0;
-    for (const key of RARITY_ORDER) {
+    for (let i = 0; i < RARITY_ORDER.length; i++) {
+        const key = RARITY_ORDER[i];
+        // If this rarity has 0% cap at this wave, skip it
+        if (caps[i] <= 0) { weights.push(0); continue; }
         let w = RARITIES[key].dropWeight;
-        // Luck increases weight of rarer items
-        if (RARITY_ORDER.indexOf(key) >= 3) w *= luckMult;
+        // Luck increases weight of rarer items (epic+)
+        if (i >= 3) w *= luckMult;
+        // Scale weight by wave cap percentage
+        w *= (caps[i] / 100);
         weights.push(w);
         total += w;
     }
@@ -424,4 +463,17 @@ const STAT_UPGRADES = [
     { stat: 'xpGain',      name: 'XP Gain',      icon: '📚', amount: 0.10, desc: '+10% XP Gain',       pct: true },
     { stat: 'pickupRange', name: 'Pickup Range', icon: '🧲', amount: 0.12, desc: '+12% Pickup Range',  pct: true },
     { stat: 'orbitalSpeed',name: 'Orbit Speed',  icon: '🌀', amount: 0.08, desc: '+8% Orbital Speed',  pct: true },
+];
+
+// ─── Player Skins ───
+const PLAYER_SKINS = [
+    { id: 'default',  name: 'Default',  cost: 0,    bodyColor: '#00ccff', glowColor: '#00aaff', highlightColor: '#aaeeff', trailColor: '#00bbff', icon: '🔵' },
+    { id: 'ember',    name: 'Ember',    cost: 50,   bodyColor: '#ff6622', glowColor: '#ff4400', highlightColor: '#ffaa66', trailColor: '#ff4400', icon: '🔥' },
+    { id: 'frost',    name: 'Frost',    cost: 100,  bodyColor: '#aaddff', glowColor: '#6699ff', highlightColor: '#eeffff', trailColor: '#88bbff', icon: '❄️' },
+    { id: 'shadow',   name: 'Shadow',   cost: 150,  bodyColor: '#8844cc', glowColor: '#6622aa', highlightColor: '#bb88ee', trailColor: '#6622aa', icon: '🌑' },
+    { id: 'gilded',   name: 'Gilded',   cost: 200,  bodyColor: '#ffcc00', glowColor: '#cc9900', highlightColor: '#ffee88', trailColor: '#ccaa00', icon: '✨' },
+    { id: 'neon',     name: 'Neon',     cost: 300,  bodyColor: '#00ff66', glowColor: '#00cc44', highlightColor: '#88ffbb', trailColor: '#00ee55', icon: '💚' },
+    { id: 'nebula',   name: 'Nebula',   cost: 500,  bodyColor: '#ff44cc', glowColor: '#cc22aa', highlightColor: '#ffaaee', trailColor: '#ff22bb', icon: '🌌' },
+    { id: 'crimson',  name: 'Crimson',  cost: 750,  bodyColor: '#cc2222', glowColor: '#990000', highlightColor: '#ff6666', trailColor: '#aa1111', icon: '🩸' },
+    { id: 'prism',    name: 'Prism',    cost: 1000, bodyColor: 'prism',   glowColor: 'prism',   highlightColor: '#ffffff', trailColor: 'prism',   icon: '🌈', rainbow: true },
 ];

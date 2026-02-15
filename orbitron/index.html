@@ -6,6 +6,35 @@
     <title>Orbitron — Orbital Survival</title>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%2300f0ff'/><circle cx='30' cy='40' r='8' fill='%23ff6b00'/><circle cx='70' cy='60' r='6' fill='%23c084fc'/></svg>">
+    <!-- AdSense: Replace ca-pub-XXXXXXX with your actual Publisher ID and data-ad-slot values -->
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXX" crossorigin="anonymous"></script>
+    <script>
+        // Ad manager — controls visibility based on game state
+        window.OrbitronAds = {
+            initialized: false,
+            init() {
+                if (this.initialized) return;
+                this.initialized = true;
+                // Push all initial ad units
+                try {
+                    const slots = document.querySelectorAll('.adsbygoogle');
+                    slots.forEach(() => {
+                        (adsbygoogle = window.adsbygoogle || []).push({});
+                    });
+                } catch(e) { /* AdSense not loaded yet */ }
+            },
+            showMenuAds() {
+                document.querySelectorAll('.ad-sidebar').forEach(el => el.classList.remove('hidden-gameplay'));
+                document.querySelectorAll('.ad-slot').forEach(el => el.style.display = '');
+            },
+            hideGameplayAds() {
+                document.querySelectorAll('.ad-sidebar').forEach(el => el.classList.add('hidden-gameplay'));
+            },
+            showDeathAds() {
+                document.querySelectorAll('.ad-sidebar').forEach(el => el.classList.remove('hidden-gameplay'));
+            }
+        };
+    </script>
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
@@ -17,15 +46,29 @@
             <p class="subtitle">Orbital Survival</p>
             <div class="menu-stats" id="menuStats"></div>
             <button class="btn btn-play" id="btnPlay">PLAY</button>
+            <button class="btn btn-secondary" id="btnPVP">LOCAL PVP</button>
+            <button class="btn btn-secondary" id="btnSkins">SKINS</button>
             <button class="btn btn-secondary" id="btnUpgrades">PERMANENT UPGRADES</button>
             <button class="btn btn-secondary" id="btnStash">PERMANENT STASH</button>
             <button class="btn btn-secondary" id="btnAchievements">ACHIEVEMENTS</button>
+            <button class="btn btn-secondary" id="btnDropRates">DROP RATES</button>
+            <button class="btn btn-secondary" id="btnPetalInfo">PETALS</button>
+            <button class="btn btn-secondary" id="btnTutorial">HOW TO PLAY</button>
             <div class="controls-hint">
                 <p>WASD / Arrow Keys to move</p>
                 <p>SPACE = Extend Petals | SHIFT = Retract Petals</p>
                 <p>Q = Dash | E = Equip Loot | O = Store in Inventory</p>
                 <p>1-9 = Move loadout petal to inventory</p>
                 <p>Click inventory items to equip</p>
+                <p style="margin-top:4px;color:#555">PVP P2: Arrows + . / , / /</p>
+            </div>
+            <div class="secret-code-row">
+                <input type="text" id="secretCodeInput" placeholder="Enter secret code..." class="secret-input" autocomplete="off">
+                <button class="btn btn-small" id="btnSecretCode">GO</button>
+            </div>
+            <!-- Ad Banner: Main Menu -->
+            <div class="ad-slot ad-menu" id="adMenuBanner">
+                <ins class="adsbygoogle" style="display:block" data-ad-client="ca-pub-XXXXXXX" data-ad-slot="MENU_SLOT_ID" data-ad-format="auto" data-full-width-responsive="true"></ins>
             </div>
         </div>
     </div>
@@ -70,6 +113,35 @@
             </div>
             <button class="btn btn-play" id="btnRestart">TRY AGAIN</button>
             <button class="btn btn-secondary" id="btnMainMenu">MAIN MENU</button>
+            <!-- Ad Banner: Death Screen -->
+            <div class="ad-slot ad-death" id="adDeathBanner">
+                <ins class="adsbygoogle" style="display:block" data-ad-client="ca-pub-XXXXXXX" data-ad-slot="DEATH_SLOT_ID" data-ad-format="auto" data-full-width-responsive="true"></ins>
+            </div>
+        </div>
+    </div>
+
+    <!-- Petal Encyclopedia Screen -->
+    <div id="petalInfoScreen" class="screen hidden">
+        <div class="petal-info-container">
+            <h2>PETAL ENCYCLOPEDIA</h2>
+            <p class="petal-info-subtitle">Damage and HP for every petal at every rarity</p>
+            <div id="petalInfoTable" class="petal-info-table"></div>
+            <button class="btn btn-secondary" id="btnBackPetalInfo">BACK</button>
+        </div>
+    </div>
+
+    <!-- Drop Rates Screen -->
+    <div id="dropRateScreen" class="screen hidden">
+        <div class="droprate-container">
+            <h2>DROP RATES BY WAVE</h2>
+            <p class="droprate-subtitle">Chance each rarity can appear per wave</p>
+            <div class="droprate-wave-selector">
+                <label>Wave: </label>
+                <input type="range" id="dropRateWaveSlider" min="1" max="100" value="1">
+                <span id="dropRateWaveLabel">1</span>
+            </div>
+            <div id="dropRateTable" class="droprate-table"></div>
+            <button class="btn btn-secondary" id="btnBackDropRates">BACK</button>
         </div>
     </div>
 
@@ -81,6 +153,55 @@
             <div id="permStashGrid" class="perm-stash-grid"></div>
             <p id="stashEmpty" class="stash-empty">No petals saved yet. Survive a run and save one!</p>
             <button class="btn btn-secondary" id="btnBackStash">BACK</button>
+        </div>
+    </div>
+
+    <!-- Skin Shop Screen -->
+    <div id="skinScreen" class="screen hidden">
+        <div class="skin-container">
+            <h2>PLAYER SKINS</h2>
+            <p class="currency-display">Stardust: <span id="skinStardustCount">0</span> ✦</p>
+            <p class="skin-subtitle">Customize your look</p>
+            <div class="skin-preview-area">
+                <canvas id="skinPreviewCanvas" width="120" height="120"></canvas>
+            </div>
+            <div id="skinGrid" class="skin-grid"></div>
+            <button class="btn btn-secondary" id="btnBackSkins">BACK</button>
+        </div>
+    </div>
+
+    <!-- PVP Setup Screen -->
+    <div id="pvpScreen" class="screen hidden">
+        <div class="pvp-container">
+            <h2>LOCAL PVP</h2>
+            <p class="pvp-subtitle">1v1 on the same keyboard!</p>
+            <div class="pvp-info">
+                <div class="pvp-player-info">
+                    <h3 style="color:#00ccff">PLAYER 1</h3>
+                    <p>WASD to move</p>
+                    <p>SPACE = Extend | SHIFT = Retract</p>
+                    <p>Q = Dash</p>
+                </div>
+                <div class="pvp-vs">VS</div>
+                <div class="pvp-player-info">
+                    <h3 style="color:#ff4444">PLAYER 2</h3>
+                    <p>Arrow Keys to move</p>
+                    <p>. = Extend | , = Retract</p>
+                    <p>/ = Dash</p>
+                </div>
+            </div>
+            <button class="btn btn-play" id="btnStartPVP">START MATCH</button>
+            <button class="btn btn-secondary" id="btnBackPVP">BACK</button>
+        </div>
+    </div>
+
+    <!-- PVP Victory Screen -->
+    <div id="pvpVictoryScreen" class="screen hidden">
+        <div class="pvp-victory-container">
+            <h2 class="pvp-victory-title" id="pvpVictoryTitle">PLAYER 1 WINS!</h2>
+            <div id="pvpVictoryStats" class="pvp-victory-stats"></div>
+            <button class="btn btn-play" id="btnPVPRematch">REMATCH</button>
+            <button class="btn btn-secondary" id="btnPVPMenu">MAIN MENU</button>
         </div>
     </div>
 
@@ -134,6 +255,120 @@
 
     <!-- Toast notifications -->
     <div id="toastContainer" class="toast-container"></div>
+
+    <!-- PVP HUD -->
+    <div id="pvpHud" class="hidden">
+        <div class="pvp-hud-p1">
+            <div class="pvp-label" style="color:#00ccff">P1</div>
+            <div class="pvp-hp-bar-bg">
+                <div class="pvp-hp-fill pvp-hp-p1" id="pvpHpP1"></div>
+            </div>
+        </div>
+        <div class="pvp-hud-p2">
+            <div class="pvp-label" style="color:#ff4444">P2</div>
+            <div class="pvp-hp-bar-bg">
+                <div class="pvp-hp-fill pvp-hp-p2" id="pvpHpP2"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tutorial Overlay -->
+    <div id="tutorialOverlay" class="tutorial-overlay hidden">
+        <div class="tutorial-card">
+            <div class="tutorial-step-indicator" id="tutorialStepIndicator"></div>
+            <div class="tutorial-icon" id="tutorialIcon"></div>
+            <h3 class="tutorial-title" id="tutorialTitle"></h3>
+            <p class="tutorial-text" id="tutorialText"></p>
+            <div class="tutorial-buttons">
+                <button class="btn btn-secondary btn-tut" id="btnTutPrev">BACK</button>
+                <button class="btn btn-play btn-tut" id="btnTutNext">NEXT</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mod Sidebar (hidden until mod code entered) -->
+    <div id="modSidebar" class="mod-sidebar hidden">
+        <h3>⚙️ MOD MENU</h3>
+
+        <div class="mod-section">
+            <label>Skip to Wave</label>
+            <div class="mod-row">
+                <input type="number" id="modWaveInput" value="10" min="1" max="999" class="mod-input">
+                <button class="btn btn-small" id="modBtnWave">GO</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <label>Set Max HP</label>
+            <div class="mod-row">
+                <input type="number" id="modHPInput" value="9999" min="1" class="mod-input">
+                <button class="btn btn-small" id="modBtnHP">SET</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <label>HP Regen /s</label>
+            <div class="mod-row">
+                <input type="number" id="modRegenInput" value="50" min="0" step="0.5" class="mod-input">
+                <button class="btn btn-small" id="modBtnRegen">SET</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <label>Speed Multiplier</label>
+            <div class="mod-row">
+                <input type="number" id="modSpeedInput" value="2" min="0.1" max="10" step="0.1" class="mod-input">
+                <button class="btn btn-small" id="modBtnSpeed">SET</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <label>Damage Multiplier</label>
+            <div class="mod-row">
+                <input type="number" id="modDamageInput" value="10" min="0.1" max="100" step="0.1" class="mod-input">
+                <button class="btn btn-small" id="modBtnDamage">SET</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <button class="btn btn-small mod-toggle" id="modBtnGod">🛡️ GOD MODE: OFF</button>
+        </div>
+
+        <div class="mod-section">
+            <button class="btn btn-small" id="modBtnKillAll">💀 KILL ALL ENEMIES</button>
+        </div>
+
+        <div class="mod-section">
+            <label>Add Petal</label>
+            <div class="mod-row">
+                <select id="modPetalType" class="mod-input"></select>
+            </div>
+            <div class="mod-row">
+                <select id="modPetalRarity" class="mod-input"></select>
+                <button class="btn btn-small" id="modBtnAddPetal">ADD</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <label>Give Stardust</label>
+            <div class="mod-row">
+                <input type="number" id="modStardustInput" value="1000" min="0" class="mod-input">
+                <button class="btn btn-small" id="modBtnStardust">GIVE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ad Sidebars (left + right) — hidden during gameplay -->
+    <div class="ad-sidebar left" id="adSidebarLeft">
+        <div class="ad-content" id="adLeftContent">
+            <ins class="adsbygoogle" style="display:inline-block;width:160px;height:600px" data-ad-client="ca-pub-XXXXXXX" data-ad-slot="LEFT_SIDEBAR_SLOT_ID"></ins>
+        </div>
+    </div>
+    <div class="ad-sidebar right" id="adSidebarRight">
+        <div class="ad-content" id="adRightContent">
+            <ins class="adsbygoogle" style="display:inline-block;width:160px;height:600px" data-ad-client="ca-pub-XXXXXXX" data-ad-slot="RIGHT_SIDEBAR_SLOT_ID"></ins>
+        </div>
+    </div>
 
     <script src="js/config.js"></script>
     <script src="js/engine.js"></script>

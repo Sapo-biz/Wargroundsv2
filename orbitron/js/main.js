@@ -13,7 +13,7 @@ class Game {
         this.ui = new UIManager(this);
         this.upgradeSystem = new UpgradeSystem(this);
 
-        this.state = 'menu'; // menu, playing, paused, dead
+        this.state = 'menu'; // menu, playing, paused, dead, pvp
         this.paused = false;
         this.player = null;
         this.enemies = [];
@@ -29,6 +29,16 @@ class Game {
         this.streakTimer = 0;
         this.runStats = {};
 
+        // PVP
+        this.pvpMode = false;
+        this.player2 = null;
+        this.pvpTime = 0;
+        this.pvpArenaSize = 1600;
+
+        // Mod
+        this.modEnabled = false;
+        this.godMode = false;
+
         this.lastTime = 0;
         this.hudUpdateTimer = 0;
         this.minimapTimer = 0;
@@ -37,6 +47,84 @@ class Game {
         this.ui.showScreen('mainMenu');
         this.loop = this.loop.bind(this);
         requestAnimationFrame(this.loop);
+    }
+
+    // ─── Mod Actions ───
+    modSetWave(targetWave) {
+        if (!this.modEnabled || this.state !== 'playing' || !this.waveSystem) return;
+        targetWave = Math.max(1, Math.min(999, parseInt(targetWave) || 1));
+        this.waveSystem.wave = targetWave - 1;
+        this.waveSystem.timer = 0.1;
+        this.waveSystem.betweenWaves = true;
+        this.waveSystem.waveActive = false;
+        this.enemies = [];
+        this.showToast(`⚙️ Skipped to wave ${targetWave}`, '#4ade80', false);
+    }
+
+    modSetHP(hp) {
+        if (!this.modEnabled || !this.player) return;
+        hp = Math.max(1, parseInt(hp) || 1);
+        this.player.baseStats.maxHp = hp;
+        this.player.hp = hp;
+        this.showToast(`⚙️ HP set to ${hp}`, '#4ade80', false);
+    }
+
+    modSetRegen(regen) {
+        if (!this.modEnabled || !this.player) return;
+        regen = Math.max(0, parseFloat(regen) || 0);
+        this.player.baseStats.hpRegen = regen;
+        this.showToast(`⚙️ Regen set to ${regen.toFixed(1)}/s`, '#4ade80', false);
+    }
+
+    modSetSpeed(mult) {
+        if (!this.modEnabled || !this.player) return;
+        mult = Math.max(0.1, Math.min(10, parseFloat(mult) || 1));
+        this.player.statBonuses.speed = mult;
+        this.showToast(`⚙️ Speed ×${mult.toFixed(1)}`, '#4ade80', false);
+    }
+
+    modToggleGodMode() {
+        if (!this.modEnabled) return;
+        this.godMode = !this.godMode;
+        this.showToast(`⚙️ God mode ${this.godMode ? 'ON' : 'OFF'}`, this.godMode ? '#4ade80' : '#ff4444', false);
+    }
+
+    modKillAll() {
+        if (!this.modEnabled || this.state !== 'playing') return;
+        const count = this.enemies.length;
+        for (const e of this.enemies) {
+            e.hp = 0;
+            e.dead = true;
+            this.xpGems.push(new XPGem(e.x, e.y, e.xpReward));
+        }
+        this.enemies = [];
+        this.showToast(`⚙️ Killed ${count} enemies`, '#4ade80', false);
+    }
+
+    modAddPetal(type, rarity) {
+        if (!this.modEnabled || !this.player) return;
+        if (this.player.orbitals.length < this.player.maxSlots) {
+            this.player.addOrbital(type, rarity);
+        } else {
+            this.addToInventory(type, rarity);
+        }
+        this.showToast(`⚙️ Added ${RARITIES[rarity].name} ${ORBITAL_TYPES[type].name}`, RARITIES[rarity].color, false);
+    }
+
+    modGiveStardust(amount) {
+        if (!this.modEnabled) return;
+        amount = Math.max(0, parseInt(amount) || 0);
+        this.saveData.stardust += amount;
+        this.saveData.totalStardust += amount;
+        this.saveSystem.save(this.saveData);
+        this.showToast(`⚙️ +${amount} Stardust`, '#ffaa00', false);
+    }
+
+    modSetDamage(mult) {
+        if (!this.modEnabled || !this.player) return;
+        mult = Math.max(0.1, Math.min(100, parseFloat(mult) || 1));
+        this.player.statBonuses.damage = mult;
+        this.showToast(`⚙️ Damage ×${mult.toFixed(1)}`, '#4ade80', false);
     }
 
     // ─── Permanent Bonus ───
@@ -138,6 +226,180 @@ class Game {
         this.saveData.totalRuns++;
     }
 
+    // ─── PVP Mode ───
+    startPVP() {
+        this.audio.resume();
+        this.state = 'pvp';
+        this.pvpMode = true;
+        this.paused = false;
+        this.enemies = [];
+        this.projectiles = [];
+        this.xpGems = [];
+        this.lootDrops = [];
+        this.hazardZones = [];
+        this.inventory = [];
+        this.pvpTime = 0;
+
+        const arena = this.pvpArenaSize;
+        const cx = CONFIG.WORLD_SIZE / 2;
+        const cy = CONFIG.WORLD_SIZE / 2;
+
+        // Player 1 (WASD, left side)
+        this.player = new Player(this, 1);
+        this.player.x = cx - arena * 0.3;
+        this.player.y = cy;
+
+        // Player 2 (Arrows, right side)
+        this.player2 = new Player(this, 2);
+        this.player2.x = cx + arena * 0.3;
+        this.player2.y = cy;
+
+        // Scale HP based on best rarity in stash
+        const stash = this.saveData.permInventory || [];
+        let bestRarityIdx = 0;
+        for (const item of stash) {
+            const ri = RARITY_ORDER.indexOf(item.rarity);
+            if (ri > bestRarityIdx) bestRarityIdx = ri;
+        }
+        const hpMult = 1 + bestRarityIdx * 0.5;
+        const pvpHp = 200 * hpMult;
+
+        // P1 gets stash petals (up to 5 best)
+        this.player.baseStats.maxHp = pvpHp;
+        this.player.hp = pvpHp;
+        this.player.baseStats.hpRegen = pvpHp / 100;
+
+        const sortedStash = [...stash].sort((a, b) => RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity));
+        const p1Petals = sortedStash.slice(0, 5);
+        if (p1Petals.length > 0) {
+            for (const p of p1Petals) this.player.addOrbital(p.type, p.rarity);
+        } else {
+            for (let i = 0; i < 5; i++) this.player.addOrbital(randomOrbitalType(), 'common');
+        }
+
+        // P2 gets same stats but mirrored petals (same stash)
+        this.player2.baseStats.maxHp = pvpHp;
+        this.player2.hp = pvpHp;
+        this.player2.baseStats.hpRegen = pvpHp / 100;
+
+        if (p1Petals.length > 0) {
+            for (const p of p1Petals) this.player2.addOrbital(p.type, p.rarity);
+        } else {
+            for (let i = 0; i < 5; i++) this.player2.addOrbital(randomOrbitalType(), 'common');
+        }
+
+        this.camera.x = cx;
+        this.camera.y = cy;
+
+        this.ui.hideAllScreens();
+        this.ui.showPVPHud();
+    }
+
+    endPVP() {
+        this.pvpMode = false;
+        this.state = 'menu';
+        this.player = null;
+        this.player2 = null;
+        this.enemies = [];
+        this.projectiles = [];
+    }
+
+    updatePVP(dt) {
+        if (!this.player || !this.player2) return;
+        this.pvpTime += dt;
+
+        const arena = this.pvpArenaSize;
+        const cx = CONFIG.WORLD_SIZE / 2;
+        const cy = CONFIG.WORLD_SIZE / 2;
+        const halfArena = arena / 2;
+
+        // Update both players
+        this.player.update(dt, this.input);
+        this.player2.update(dt, this.input);
+
+        // Clamp both to PVP arena
+        this.player.x = Math.max(cx - halfArena + this.player.radius, Math.min(cx + halfArena - this.player.radius, this.player.x));
+        this.player.y = Math.max(cy - halfArena + this.player.radius, Math.min(cy + halfArena - this.player.radius, this.player.y));
+        this.player2.x = Math.max(cx - halfArena + this.player2.radius, Math.min(cx + halfArena - this.player2.radius, this.player2.x));
+        this.player2.y = Math.max(cy - halfArena + this.player2.radius, Math.min(cy + halfArena - this.player2.radius, this.player2.y));
+
+        // PVP collision: P1 orbitals damage P2
+        for (const o of this.player.orbitals) {
+            if (o.dead || o.reloading) continue;
+            const opos = o.getWorldPos(this.player);
+            const dist = Math.hypot(opos.x - this.player2.x, opos.y - this.player2.y);
+            if (dist < this.player2.radius + 10) {
+                const dmg = o.getDamage(this.player.damage);
+                this.player2.takeDamage(dmg * 0.3); // reduced PVP damage
+                o.takePetalDamage(dmg * 0.1, this);
+            }
+        }
+
+        // PVP collision: P2 orbitals damage P1
+        for (const o of this.player2.orbitals) {
+            if (o.dead || o.reloading) continue;
+            const opos = o.getWorldPos(this.player2);
+            const dist = Math.hypot(opos.x - this.player.x, opos.y - this.player.y);
+            if (dist < this.player.radius + 10) {
+                const dmg = o.getDamage(this.player2.damage);
+                this.player.takeDamage(dmg * 0.3); // reduced PVP damage
+                o.takePetalDamage(dmg * 0.1, this);
+            }
+        }
+
+        // Projectile collision with opposing player
+        for (let i = this.projectiles.length - 1; i >= 0; i--) {
+            const p = this.projectiles[i];
+            p.update(dt, this);
+            if (p.dead) { this.projectiles.splice(i, 1); continue; }
+            // Check if proj belongs to P1 (hitting P2) or P2 (hitting P1)
+            if (p.team === 'player') {
+                // Could be from either player — check distance to both
+                const d2 = Math.hypot(p.x - this.player2.x, p.y - this.player2.y);
+                if (d2 < this.player2.radius + p.size) {
+                    this.player2.takeDamage(p.damage * 0.3);
+                    p.dead = true;
+                }
+                const d1 = Math.hypot(p.x - this.player.x, p.y - this.player.y);
+                if (d1 < this.player.radius + p.size) {
+                    this.player.takeDamage(p.damage * 0.3);
+                    p.dead = true;
+                }
+            }
+            if (p.dead) this.projectiles.splice(i, 1);
+        }
+
+        // Update camera to midpoint
+        const midX = (this.player.x + this.player2.x) / 2;
+        const midY = (this.player.y + this.player2.y) / 2;
+        this.camera.follow(midX, midY);
+        this.camera.update(dt);
+
+        // Particles
+        this.particles.update(dt);
+
+        // Update PVP HUD
+        this.ui.updatePVPHud(this.player, this.player2);
+
+        // Check for win
+        if (this.player.hp <= 0 && this.state === 'pvp') {
+            this.state = 'pvp_over';
+            this.camera.addShake(0.6);
+            this.particles.burst(this.player.x, this.player.y, 40, '#00ccff', 250, 1, 5);
+            setTimeout(() => {
+                this.ui.showPVPVictory(2, { time: this.pvpTime });
+            }, 800);
+        }
+        if (this.player2.hp <= 0 && this.state === 'pvp') {
+            this.state = 'pvp_over';
+            this.camera.addShake(0.6);
+            this.particles.burst(this.player2.x, this.player2.y, 40, '#ff4444', 250, 1, 5);
+            setTimeout(() => {
+                this.ui.showPVPVictory(1, { time: this.pvpTime });
+            }, 800);
+        }
+    }
+
     // ─── Events ───
     onLevelUp() {
         this.audio.play('levelup');
@@ -145,8 +407,7 @@ class Game {
         this.particles.ring(this.player.x, this.player.y, 24, '#00ffcc', 50, 0.5, 4);
         this.runStats.level = this.player.level;
 
-        // Show upgrade choices
-        this.paused = true;
+        // Show upgrade choices (side panel, no pause)
         const choices = this.upgradeSystem.generateChoices(3);
         this.ui.showLevelUp(choices);
     }
@@ -288,6 +549,9 @@ class Game {
         if (this.state === 'playing' && !this.paused) {
             this.update(dt);
         }
+        if (this.state === 'pvp') {
+            this.updatePVP(dt);
+        }
         this.render();
 
         requestAnimationFrame(this.loop);
@@ -387,6 +651,11 @@ class Game {
 
         if (this.state === 'menu') {
             this.renderBackground();
+            return;
+        }
+
+        if (this.state === 'pvp' || this.state === 'pvp_over') {
+            this.renderPVPArena();
             return;
         }
 
@@ -524,11 +793,72 @@ class Game {
         // Particles (on top)
         this.particles.draw(ctx, cam);
     }
+
+    renderPVPArena() {
+        const cam = this.camera;
+        const cx = CONFIG.WORLD_SIZE / 2;
+        const cy = CONFIG.WORLD_SIZE / 2;
+        const halfArena = this.pvpArenaSize / 2;
+
+        // Background
+        ctx.fillStyle = '#080818';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Arena grid
+        const gridSize = 60;
+        const startX = Math.floor((cx - halfArena) / gridSize) * gridSize;
+        const startY = Math.floor((cy - halfArena) / gridSize) * gridSize;
+        ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x = startX; x < cx + halfArena; x += gridSize) {
+            ctx.moveTo(cam.screenX(x), cam.screenY(cy - halfArena));
+            ctx.lineTo(cam.screenX(x), cam.screenY(cy + halfArena));
+        }
+        for (let y = startY; y < cy + halfArena; y += gridSize) {
+            ctx.moveTo(cam.screenX(cx - halfArena), cam.screenY(y));
+            ctx.lineTo(cam.screenX(cx + halfArena), cam.screenY(y));
+        }
+        ctx.stroke();
+
+        // Arena border
+        const bx = cam.screenX(cx - halfArena);
+        const by = cam.screenY(cy - halfArena);
+        const bw = this.pvpArenaSize;
+        const bh = this.pvpArenaSize;
+        ctx.strokeStyle = 'rgba(255,100,100,0.25)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bx, by, bw, bh);
+
+        // Center line
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([8, 8]);
+        ctx.beginPath();
+        ctx.moveTo(cam.screenX(cx), cam.screenY(cy - halfArena));
+        ctx.lineTo(cam.screenX(cx), cam.screenY(cy + halfArena));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Projectiles
+        for (const p of this.projectiles) {
+            if (cam.isVisible(p.x, p.y)) p.draw(ctx, cam);
+        }
+
+        // Draw both players
+        if (this.player) this.player.draw(ctx, cam);
+        if (this.player2) this.player2.draw(ctx, cam);
+
+        // Particles
+        this.particles.draw(ctx, cam);
+    }
 }
 
 // ─── Bootstrap ───
 window.addEventListener('load', () => {
     window.game = new Game();
+    // Initialize ads
+    if (window.OrbitronAds) window.OrbitronAds.init();
 });
 
 // Prevent context menu on right-click

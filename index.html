@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Orbitron — Orbital Survival</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%2300f0ff'/><circle cx='30' cy='40' r='8' fill='%23ff6b00'/><circle cx='70' cy='60' r='6' fill='%23c084fc'/></svg>">
+    <!-- Stripe for payments -->
+    <script src="https://js.stripe.com/v3/"></script>
+    <!-- Google Identity Services for Sign-In -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Main Menu -->
+    <div id="mainMenu" class="screen">
+        <div class="menu-layout">
+            <!-- Left Panel: Stash + Petal Stats -->
+            <div class="menu-panel menu-panel-left" id="menuPanelLeft">
+                <h3 class="panel-title">PERMANENT STASH</h3>
+                <div id="menuStashGrid" class="menu-stash-grid"></div>
+                <p id="menuStashEmpty" class="menu-stash-empty">No petals saved yet</p>
+
+                <h3 class="panel-title" style="margin-top:16px">PETAL STATS</h3>
+                <div class="panel-tabs" id="petalStatsTabs">
+                    <button class="panel-tab active" data-petal="all">All</button>
+                </div>
+                <div id="menuPetalStats" class="menu-stats-table"></div>
+            </div>
+
+            <!-- Center: Main Menu -->
+            <div class="menu-center">
+                <div class="menu-container">
+                    <h1 class="game-title">ORBITRON</h1>
+                    <p class="subtitle">Orbital Survival</p>
+                    <!-- Google Account Bar -->
+                    <div class="google-account-bar" id="googleAccountBar">
+                        <div class="google-signed-out" id="googleSignedOut">
+                            <button class="btn btn-google" id="btnGoogleLogin">
+                                <svg viewBox="0 0 24 24" width="16" height="16" style="margin-right:6px;vertical-align:middle"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                                Sign in with Google
+                            </button>
+                        </div>
+                        <div class="google-signed-in hidden" id="googleSignedIn">
+                            <img class="google-avatar" id="googleAvatar" src="" alt="">
+                            <span class="google-name" id="googleName"></span>
+                            <button class="btn btn-small btn-google-out" id="btnGoogleLogout">Sign Out</button>
+                        </div>
+                    </div>
+                    <div class="menu-stats" id="menuStats"></div>
+                    <button class="btn btn-pvp-main" id="btnPVP">⚔️ GLOBAL PVP</button>
+                    <button class="btn btn-play" id="btnPlay">WAVES</button>
+                    <button class="btn btn-premium" id="btnPremium">👑 PREMIUM</button>
+                    <button class="btn btn-secondary" id="btnSkins">SKINS</button>
+                    <button class="btn btn-secondary" id="btnUpgrades">PERMANENT UPGRADES</button>
+                    <button class="btn btn-secondary" id="btnAchievements">ACHIEVEMENTS</button>
+                    <button class="btn btn-secondary" id="btnPetalShop">💎 PETAL SHOP</button>
+                    <button class="btn btn-secondary" id="btnTutorial">HOW TO PLAY</button>
+                    <div class="controls-hint controls-desktop">
+                        <p>WASD / Arrow Keys to move</p>
+                        <p>SPACE = Extend Petals | SHIFT = Retract Petals</p>
+                        <p>Q = Dash | E = Equip Loot | O = Store in Inventory</p>
+                        <p>1-9 = Move loadout petal to inventory</p>
+                        <p>Click inventory items to equip</p>
+                    </div>
+                    <div class="controls-hint controls-mobile">
+                        <p>🕹️ Joystick to move</p>
+                        <p>⊕ Extend | ⊖ Retract | ⚡ Dash</p>
+                        <p>E = Equip Loot | O = Store</p>
+                        <p>Tap inventory items to equip</p>
+                    </div>
+                    <div class="secret-code-row">
+                        <input type="text" id="secretCodeInput" placeholder="Enter secret code..." class="secret-input" autocomplete="off">
+                        <button class="btn btn-small" id="btnSecretCode">GO</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Drop Rates + Mob Stats -->
+            <div class="menu-panel menu-panel-right" id="menuPanelRight">
+                <h3 class="panel-title">DROP RATES</h3>
+                <div class="menu-droprate-selector">
+                    <label>Wave: </label>
+                    <input type="range" id="menuDropRateSlider" min="1" max="100" value="1" class="menu-slider">
+                    <span id="menuDropRateLabel">1</span>
+                </div>
+                <div id="menuDropRateTable" class="menu-droprate-table"></div>
+
+                <h3 class="panel-title" style="margin-top:16px">MOB STATS</h3>
+                <div class="panel-tabs" id="mobStatsTabs">
+                    <button class="panel-tab active" data-mob="all">All</button>
+                </div>
+                <div id="menuMobStats" class="menu-stats-table"></div>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upgrade Shop (Prestige) -->
+    <div id="upgradeShop" class="screen hidden">
+        <div class="shop-container">
+            <h2>PERMANENT UPGRADES</h2>
+            <p class="currency-display">Stardust: <span id="stardustCount">0</span> ✦</p>
+            <div id="shopItems" class="shop-grid"></div>
+            <button class="btn btn-secondary" id="btnBackShop">BACK</button>
+        </div>
+    </div>
+
+    <!-- Achievement Screen -->
+    <div id="achievementScreen" class="screen hidden">
+        <div class="achievement-container">
+            <h2>ACHIEVEMENTS</h2>
+            <div id="achievementList" class="achievement-grid"></div>
+            <button class="btn btn-secondary" id="btnBackAch">BACK</button>
+        </div>
+    </div>
+
+    <!-- Level Up Screen -->
+    <div id="levelUpScreen" class="screen hidden">
+        <div class="levelup-container">
+            <h2 class="levelup-title">LEVEL UP!</h2>
+            <p class="levelup-subtitle">Choose an upgrade</p>
+            <div id="upgradeChoices" class="upgrade-grid"></div>
+        </div>
+    </div>
+
+    <!-- Death Screen -->
+    <div id="deathScreen" class="screen hidden">
+        <div class="death-container">
+            <h2 class="death-title">DESTROYED</h2>
+            <div id="deathStats" class="death-stats"></div>
+            <div id="petalPickSection" class="petal-pick-section hidden">
+                <h3 class="petal-pick-title">SAVE A PETAL</h3>
+                <p class="petal-pick-subtitle">Choose one petal to keep permanently</p>
+                <div id="petalPickGrid" class="petal-pick-grid"></div>
+            </div>
+            <button class="btn btn-play" id="btnRestart">TRY AGAIN</button>
+            <button class="btn btn-secondary" id="btnMainMenu">MAIN MENU</button>
+        </div>
+    </div>
+
+    <!-- Petal Encyclopedia Screen -->
+    <div id="petalInfoScreen" class="screen hidden">
+        <div class="petal-info-container">
+            <h2>PETAL ENCYCLOPEDIA</h2>
+            <p class="petal-info-subtitle">Damage and HP for every petal at every rarity</p>
+            <div id="petalInfoTable" class="petal-info-table"></div>
+            <button class="btn btn-secondary" id="btnBackPetalInfo">BACK</button>
+        </div>
+    </div>
+
+    <!-- Drop Rates Screen -->
+    <div id="dropRateScreen" class="screen hidden">
+        <div class="droprate-container">
+            <h2>DROP RATES BY WAVE</h2>
+            <p class="droprate-subtitle">Chance each rarity can appear per wave</p>
+            <div class="droprate-wave-selector">
+                <label>Wave: </label>
+                <input type="range" id="dropRateWaveSlider" min="1" max="100" value="1">
+                <span id="dropRateWaveLabel">1</span>
+            </div>
+            <div id="dropRateTable" class="droprate-table"></div>
+            <button class="btn btn-secondary" id="btnBackDropRates">BACK</button>
+        </div>
+    </div>
+
+    <!-- Permanent Stash Screen -->
+    <div id="permStashScreen" class="screen hidden">
+        <div class="stash-container">
+            <h2>PERMANENT STASH</h2>
+            <p class="stash-subtitle">Petals saved from past runs</p>
+            <div id="permStashGrid" class="perm-stash-grid"></div>
+            <p id="stashEmpty" class="stash-empty">No petals saved yet. Survive a run and save one!</p>
+            <button class="btn btn-secondary" id="btnBackStash">BACK</button>
+        </div>
+    </div>
+
+    <!-- Skin Shop Screen -->
+    <div id="skinScreen" class="screen hidden">
+        <div class="skin-container">
+            <h2>PLAYER SKINS</h2>
+            <p class="currency-display">Stardust: <span id="skinStardustCount">0</span> ✦</p>
+            <p class="skin-subtitle">Customize your look</p>
+            <div class="skin-preview-area">
+                <canvas id="skinPreviewCanvas" width="120" height="120"></canvas>
+            </div>
+            <div id="skinGrid" class="skin-grid"></div>
+            <button class="btn btn-secondary" id="btnBackSkins">BACK</button>
+        </div>
+    </div>
+
+    <!-- PVP Zone Selector Screen -->
+    <div id="pvpScreen" class="screen hidden">
+        <div class="pvp-container">
+            <h2>⚔️ GLOBAL PVP</h2>
+            <p class="pvp-subtitle">Choose a zone to enter. Your petals determine which zones you can access.</p>
+            <div class="pvp-zone-grid" id="pvpZoneGrid"></div>
+            <button class="btn btn-secondary" id="btnBackPVP">BACK</button>
+        </div>
+    </div>
+
+    <!-- PVP Death / Results Screen -->
+    <div id="pvpVictoryScreen" class="screen hidden">
+        <div class="pvp-victory-container">
+            <h2 class="pvp-victory-title" id="pvpVictoryTitle">ELIMINATED</h2>
+            <div id="pvpVictoryStats" class="pvp-victory-stats"></div>
+            <button class="btn btn-play" id="btnPVPRematch">PLAY AGAIN</button>
+            <button class="btn btn-secondary" id="btnPVPMenu">MAIN MENU</button>
+        </div>
+    </div>
+
+    <!-- Pre-Run Petal Selection -->
+    <div id="preRunScreen" class="screen hidden">
+        <div class="prerun-container">
+            <h2>CHOOSE A STARTING PETAL</h2>
+            <p class="prerun-subtitle">Pick a petal from your stash to start with, or skip</p>
+            <div id="preRunGrid" class="prerun-grid"></div>
+            <button class="btn btn-play" id="btnSkipPetal">START WITHOUT</button>
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+        <div class="hud-top">
+            <div class="hud-hp">
+                <div class="hp-bar-bg">
+                    <div class="hp-bar-fill" id="hpBar"></div>
+                    <span class="hp-text" id="hpText"></span>
+                </div>
+            </div>
+            <div class="hud-xp">
+                <div class="xp-bar-bg">
+                    <div class="xp-bar-fill" id="xpBar"></div>
+                    <span class="xp-text" id="xpText"></span>
+                </div>
+            </div>
+        </div>
+        <div class="hud-left">
+            <div class="wave-display" id="waveDisplay">Wave 1</div>
+            <div class="zone-display" id="zoneDisplay">Meadow</div>
+            <div class="kill-streak" id="killStreak"></div>
+            <div class="timer-display" id="timerDisplay">0:00</div>
+            <div class="pet-status" id="petStatus">
+                <span class="pet-icon">🐾</span>
+                <div class="pet-hp-bar-bg">
+                    <div class="pet-hp-bar-fill" id="petHpBar"></div>
+                </div>
+                <span class="pet-hp-text" id="petHpText"></span>
+            </div>
+        </div>
+        <div class="hud-right">
+            <div class="stats-panel" id="statsPanel"></div>
+        </div>
+        <div class="inventory-panel" id="inventoryPanel">
+            <div class="inventory-header">INVENTORY <span class="inv-count" id="inventoryCount">0</span></div>
+            <div class="inventory-grid" id="inventoryGrid"></div>
+            <div class="inventory-merge" id="inventoryMerge"></div>
+        </div>
+        <div class="hud-bottom">
+            <div class="orbital-slots" id="orbitalSlots"></div>
+        </div>
+        <div class="minimap-container">
+            <canvas id="minimap" width="150" height="150"></canvas>
+        </div>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- PVP HUD -->
+    <div id="pvpHud" class="hidden">
+        <div class="pvp-hud-top">
+            <div class="pvp-hp-section">
+                <div class="pvp-hp-bar-bg">
+                    <div class="pvp-hp-fill pvp-hp-p1" id="pvpHpP1"></div>
+                    <span class="pvp-hp-text" id="pvpHpText"></span>
+                </div>
+            </div>
+            <div class="pvp-score-section">
+                <span class="pvp-score-label">SCORE</span>
+                <span class="pvp-score-value" id="pvpScore">0</span>
+            </div>
+            <div class="pvp-zone-label" id="pvpZoneLabel"></div>
+        </div>
+        <div class="pvp-leaderboard" id="pvpLeaderboard">
+            <div class="pvp-lb-title">LEADERBOARD</div>
+            <div class="pvp-lb-list" id="pvpLbList"></div>
+        </div>
+        <button class="btn btn-pvp-exit" id="btnPvpExit">✕ EXIT</button>
+    </div>
+
+    <!-- Tutorial Overlay -->
+    <div id="tutorialOverlay" class="tutorial-overlay hidden">
+        <div class="tutorial-card">
+            <div class="tutorial-step-indicator" id="tutorialStepIndicator"></div>
+            <div class="tutorial-icon" id="tutorialIcon"></div>
+            <h3 class="tutorial-title" id="tutorialTitle"></h3>
+            <p class="tutorial-text" id="tutorialText"></p>
+            <div class="tutorial-buttons">
+                <button class="btn btn-secondary btn-tut" id="btnTutPrev">BACK</button>
+                <button class="btn btn-play btn-tut" id="btnTutNext">NEXT</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mod Sidebar (hidden until mod code entered) -->
+    <div id="modSidebar" class="mod-sidebar hidden">
+        <div class="mod-header" id="modHeader">
+            <h3>⚙️ MOD MENU</h3>
+            <button class="mod-collapse-btn" id="modCollapseBtn">▼</button>
+        </div>
+        <div class="mod-body" id="modBody">
+
+        <div class="mod-section">
+            <label>Skip to Wave</label>
+            <div class="mod-row">
+                <input type="number" id="modWaveInput" value="10" min="1" max="999" class="mod-input">
+                <button class="btn btn-small" id="modBtnWave">GO</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <label>Set Max HP</label>
+            <div class="mod-row">
+                <input type="number" id="modHPInput" value="9999" min="1" class="mod-input">
+                <button class="btn btn-small" id="modBtnHP">SET</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <label>HP Regen /s</label>
+            <div class="mod-row">
+                <input type="number" id="modRegenInput" value="50" min="0" step="0.5" class="mod-input">
+                <button class="btn btn-small" id="modBtnRegen">SET</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <label>Speed Multiplier</label>
+            <div class="mod-row">
+                <input type="number" id="modSpeedInput" value="2" min="0.1" max="10" step="0.1" class="mod-input">
+                <button class="btn btn-small" id="modBtnSpeed">SET</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <label>Damage Multiplier</label>
+            <div class="mod-row">
+                <input type="number" id="modDamageInput" value="10" min="0.1" max="100" step="0.1" class="mod-input">
+                <button class="btn btn-small" id="modBtnDamage">SET</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <button class="btn btn-small mod-toggle" id="modBtnGod">🛡️ GOD MODE: OFF</button>
+        </div>
+
+        <div class="mod-section">
+            <button class="btn btn-small" id="modBtnKillAll">💀 KILL ALL ENEMIES</button>
+        </div>
+
+        <div class="mod-section">
+            <label>Add Petal</label>
+            <div class="mod-row">
+                <select id="modPetalType" class="mod-input"></select>
+            </div>
+            <div class="mod-row">
+                <select id="modPetalRarity" class="mod-input"></select>
+                <button class="btn btn-small" id="modBtnAddPetal">ADD</button>
+            </div>
+        </div>
+
+        <div class="mod-section">
+            <label>Give Stardust</label>
+            <div class="mod-row">
+                <input type="number" id="modStardustInput" value="1000" min="0" class="mod-input">
+                <button class="btn btn-small" id="modBtnStardust">GIVE</button>
+            </div>
+        </div>
+        </div><!-- /mod-body -->
+    </div>
+
+    <!-- Premium Overlay -->
+    <div id="premiumOverlay" class="premium-overlay hidden">
+        <div class="premium-card">
+            <button class="premium-close" id="btnClosePremium">✕</button>
+            <div class="premium-crown">👑</div>
+            <h2 class="premium-title">ORBITRON PREMIUM</h2>
+            <p class="premium-price">$7.99<span>/month</span></p>
+            <ul class="premium-perks">\n                <li>🎨 All skins unlocked forever</li>\n                <li>✦ 100 Stardust daily login bonus</li>\n                <li>⚡ Exclusive premium badge</li>\n            </ul>
+            <button class="btn btn-premium-buy" id="btnBuyPremium">SUBSCRIBE NOW</button>
+            <button class="btn btn-secondary" id="btnTryPremium" style="margin-top: 8px; font-size: 12px; padding: 4px 8px">TRY DEMO (30 days)</button>
+            <p class="premium-fine">Cancel anytime. Secure payment via Stripe.</p>
+        </div>
+    </div>
+
+    <!-- Death Upsell Popup (dynamic content injected by JS) -->
+    <div id="deathUpsellOverlay" class="upsell-overlay hidden">
+        <div class="upsell-card">
+            <button class="upsell-close" id="btnCloseUpsell">✕</button>
+            <div class="upsell-icon" id="upsellIcon">🛡️⚔️</div>
+            <h2 class="upsell-title" id="upsellTitle">DOMINATE EVERY RUN</h2>
+            <p class="upsell-slogan" id="upsellSlogan"></p>
+            <div class="upsell-items" id="upsellItems"></div>
+            <p class="upsell-price" id="upsellPrice"></p>
+            <button class="btn btn-upsell-buy" id="btnBuyUpsellPack">GET THIS PACK</button>
+            <p class="upsell-browse">or <span class="upsell-browse-link" id="btnBrowseShop">browse the full shop →</span></p>
+            <p class="upsell-skip" id="btnSkipUpsell">No thanks, I'll earn them</p>
+        </div>
+    </div>
+
+    <!-- Ad Sidebars (left + right) — hidden during gameplay -->
+
+    <!-- Petal Shop Screen -->
+    <div id="petalShopScreen" class="screen hidden">
+        <div class="menu-container" style="max-width: 700px;">
+            <h2 class="screen-title">💎 PETAL SHOP</h2>
+            <p class="shop-subtitle">Buy premium petals directly. Items go to your permanent stash.</p>
+            <div class="petal-shop-tabs">
+                <button class="petal-shop-tab active" data-tab="divine">✦ Divine</button>
+                <button class="petal-shop-tab" data-tab="cosmic">✦✦ Cosmic</button>
+                <button class="petal-shop-tab" data-tab="eternal">✦✦✦ Eternal</button>
+            </div>
+            <div class="petal-shop-grid" id="petalShopGrid"></div>
+            <button class="btn btn-secondary" id="btnBackPetalShop" style="margin-top: 16px">← BACK</button>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/engine.js"></script>
+    <script src="js/particles.js"></script>
+    <script src="js/entities.js"></script>
+    <script src="js/systems.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+[build]
+  command = "npm install"
+  functions = "netlify/functions"
+  publish = "."
+
+[dev]
+  framework = "#custom"
+  command = "npm start"
+  port = 3000
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+[context.production.environment]
+  STRIPE_SECRET_KEY = ""
+  STRIPE_PUBLISHABLE_KEY = ""
+  STRIPE_WEBHOOK_SECRET = ""
+  STRIPE_PRICE_ID = ""
+  NODE_ENV = "production"
+
+[context.deploy-preview.environment]
+  NODE_ENV = "staging"

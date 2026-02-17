@@ -1,0 +1,18 @@
+{
+  "name": "orbitron-netlify",
+  "version": "1.0.0",
+  "description": "Orbitron game with Netlify Functions backend",
+  "scripts": {
+    "start": "netlify dev",
+    "dev": "netlify dev"
+  },
+  "dependencies": {
+    "stripe": "^13.0.0",
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": "16.x || 18.x || 20.x"
+  },
+  "author": "Orbitron Team",
+  "license": "MIT"
+}

@@ -465,14 +465,14 @@ class Game {
         this.player.baseStats.hpRegen = 0; // PVP handles regen separately
         this.player._pvpRegenRate = zone.regen;
 
-        // Equip eligible petals from stash
+        // Equip ALL eligible petals from permanent inventory
         const stash = this.saveData.permInventory || [];
         const eligible = stash.filter(p => zone.allowedRarities.includes(p.rarity));
         const sorted = [...eligible].sort((a, b) => RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity));
-        const petals = sorted.slice(0, 5);
-        if (petals.length > 0) {
-            for (const p of petals) this.player.addOrbital(p.type, p.rarity);
+        if (sorted.length > 0) {
+            for (const p of sorted) this.player.addOrbital(p.type, p.rarity);
         } else {
+            // No eligible petals — give 5 basic ones
             for (let i = 0; i < 5; i++) this.player.addOrbital(randomOrbitalType(), zone.allowedRarities[0] || 'common');
         }
 
@@ -487,7 +487,7 @@ class Game {
         }
 
         // Add player to leaderboard
-        const userName = (this.googleAuth && this.googleAuth.user) ? this.googleAuth.user.name : 'You';
+        const userName = this.saveData.username || (this.googleAuth && this.googleAuth.user ? this.googleAuth.user.name : 'You');
         this.pvpLeaderboard.push({ name: userName, score: 0, color: '#00ccff', alive: true, isBot: false });
 
         // Spawn initial orbs
@@ -514,7 +514,7 @@ class Game {
             regenRate: zone.regen,
             regenTimer: PVP_REGEN_DELAY,
             speed: CONFIG.BASE_PLAYER_SPEED * (0.7 + Math.random() * 0.5),
-            name: names[idx % names.length] + (idx >= names.length ? (idx + 1) : ''),
+            name: names[idx % names.length] + (idx >= names.length ? (idx + 1) : '') + ' BOT',
             color: colors[idx % colors.length],
             orbitals: [],
             orbitDistMult: 1.0,

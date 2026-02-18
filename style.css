@@ -1361,6 +1361,63 @@ body {
     gap: 8px;
     margin-top: 12px;
 }
+
+/* ─── Username Section ─── */
+.username-section {
+    margin: 10px 0 6px;
+}
+.username-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: center;
+}
+.username-label {
+    color: #888;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.username-value {
+    color: #00ccff;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+.btn-username {
+    padding: 3px 8px !important;
+    font-size: 0.7rem !important;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+}
+.username-edit {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: center;
+    margin-top: 6px;
+}
+.username-input {
+    background: #111122;
+    border: 1px solid #444;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    width: 140px;
+    outline: none;
+    font-family: inherit;
+}
+.username-input:focus {
+    border-color: #00ccff;
+}
+.btn-confirm {
+    background: rgba(74, 222, 128, 0.2) !important;
+    color: #4ade80 !important;
+    border-color: rgba(74, 222, 128, 0.3) !important;
+}
+.username-cost {
+    font-size: 0.75rem;
+    font-weight: 700;
+}
 .secret-input {
     background: #111122;
     border: 1px solid #333;

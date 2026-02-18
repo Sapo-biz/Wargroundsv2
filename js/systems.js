@@ -274,6 +274,8 @@ class SaveSystem {
             prestiges: 0,
             totalPlayTime: 0,
             permInventory: [],
+            username: '',
+            usernameChanges: 0,
             activeSkin: 'default',
             unlockedSkins: ['default'],
             premium: false,

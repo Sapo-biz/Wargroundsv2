@@ -120,6 +120,9 @@ class UIManager {
         document.getElementById('btnPetalShop').onclick = () => this.showScreen('petalShopScreen');
         document.getElementById('btnBackPetalShop').onclick = () => this.showScreen('mainMenu');
 
+        // Username system
+        this.setupUsernameUI();
+
         // Menu sidebar drop rate slider
         const menuSlider = document.getElementById('menuDropRateSlider');
         const menuLabel = document.getElementById('menuDropRateLabel');
@@ -523,6 +526,9 @@ class UIManager {
             html += `Stardust: <strong style="color:#ffaa00">${save.stardust} ✦</strong>`;
         }
         this.elements.menuStats.innerHTML = html;
+
+        // Update username display
+        this.updateUsernameDisplay();
 
         // Render side panels
         this.renderMenuStash();
@@ -1507,6 +1513,85 @@ class UIManager {
                 card.onclick = () => this.game.buyPetal(typeKey, rarity);
             }
             grid.appendChild(card);
+        }
+    }
+
+    // ─── Username System ───
+    setupUsernameUI() {
+        const btnChange = document.getElementById('btnChangeUsername');
+        const btnConfirm = document.getElementById('btnConfirmUsername');
+        const btnCancel = document.getElementById('btnCancelUsername');
+        const editDiv = document.getElementById('usernameEdit');
+        const input = document.getElementById('usernameInput');
+
+        if (btnChange) {
+            btnChange.onclick = () => {
+                editDiv.classList.remove('hidden');
+                input.value = this.game.saveData.username || '';
+                input.focus();
+                const changes = this.game.saveData.usernameChanges || 0;
+                const costEl = document.getElementById('usernameCost');
+                if (changes === 0) {
+                    costEl.textContent = 'FREE';
+                    costEl.style.color = '#4ade80';
+                } else {
+                    costEl.textContent = '2000 ✦';
+                    costEl.style.color = '#facc15';
+                }
+            };
+        }
+
+        if (btnCancel) {
+            btnCancel.onclick = () => {
+                editDiv.classList.add('hidden');
+            };
+        }
+
+        if (btnConfirm) {
+            btnConfirm.onclick = () => {
+                const name = input.value.trim().replace(/[^a-zA-Z0-9_\-\s]/g, '').substring(0, 16);
+                if (!name || name.length < 2) {
+                    this.game.showToast('Username must be 2-16 characters', '#ff4444', false);
+                    return;
+                }
+                const save = this.game.saveData;
+                const changes = save.usernameChanges || 0;
+                if (changes > 0) {
+                    if (save.stardust < 2000) {
+                        this.game.showToast('Need 2000 ✦ to change username!', '#ff4444', false);
+                        return;
+                    }
+                    save.stardust -= 2000;
+                }
+                save.username = name;
+                save.usernameChanges = changes + 1;
+                this.game.saveSystem.save(save);
+                editDiv.classList.add('hidden');
+                this.updateUsernameDisplay();
+                this.game.showToast(`Username set to "${name}"!`, '#4ade80', true);
+                this.game.audio.play('pickup', 0.5);
+            };
+        }
+
+        if (input) {
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') btnConfirm.click();
+                if (e.key === 'Escape') btnCancel.click();
+            });
+        }
+    }
+
+    updateUsernameDisplay() {
+        const el = document.getElementById('usernameValue');
+        const save = this.game.saveData;
+        if (el) {
+            el.textContent = save.username || 'Not set';
+            el.style.color = save.username ? '#00ccff' : '#666';
+        }
+        const btnChange = document.getElementById('btnChangeUsername');
+        if (btnChange) {
+            const changes = save.usernameChanges || 0;
+            btnChange.title = changes === 0 ? 'Set username (FREE)' : 'Change username (2000 ✦)';
         }
     }
 

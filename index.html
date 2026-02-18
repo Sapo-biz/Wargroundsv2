@@ -50,6 +50,19 @@
                         </div>
                     </div>
                     <div class="menu-stats" id="menuStats"></div>
+                    <div class="username-section" id="usernameSection">
+                        <div class="username-display">
+                            <span class="username-label">Username:</span>
+                            <span class="username-value" id="usernameValue">Not set</span>
+                            <button class="btn btn-small btn-username" id="btnChangeUsername">✏️</button>
+                        </div>
+                        <div class="username-edit hidden" id="usernameEdit">
+                            <input type="text" id="usernameInput" placeholder="Enter username..." class="username-input" maxlength="16" autocomplete="off">
+                            <button class="btn btn-small btn-confirm" id="btnConfirmUsername">✓</button>
+                            <button class="btn btn-small" id="btnCancelUsername">✕</button>
+                            <span class="username-cost" id="usernameCost"></span>
+                        </div>
+                    </div>
                     <button class="btn btn-pvp-main" id="btnPVP">⚔️ GLOBAL PVP</button>
                     <button class="btn btn-play" id="btnPlay">WAVES</button>
                     <button class="btn btn-premium" id="btnPremium">👑 PREMIUM</button>

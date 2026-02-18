@@ -62,6 +62,11 @@ class Game {
         this.loop = this.loop.bind(this);
         requestAnimationFrame(this.loop);
 
+        // Reset lastTime when tab becomes visible to prevent huge dt jumps
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) this.lastTime = performance.now();
+        });
+
         // Check daily premium bonus on startup
         this.checkDailyPremiumBonus();
     }
@@ -534,6 +539,12 @@ class Game {
             dashDirY: 0,
             damageFlash: 0,
             invulnTimer: 0,
+            damage: 10, // base damage for petal calculations
+        };
+
+        // Allow Enemy class to call takeDamage on bots
+        bot.takeDamage = (dmg) => {
+            this._damageBot(bot, dmg, 'mob');
         };
 
         // Give bot petals matching zone
@@ -923,17 +934,37 @@ class Game {
             this.pvpMobTimer = zone.mobSpawnInterval + Math.random() * 3;
         }
 
-        // Update enemies (mobs)
+        // Update enemies (mobs) — target nearest entity (player or bot)
         for (let i = this.enemies.length - 1; i >= 0; i--) {
-            this.enemies[i].update(dt, this.player, this);
-            if (this.enemies[i].dead) {
-                // Mob killed — award player points
-                this.pvpScore += PVP_SCORE.KILL;
-                this._updatePlayerLeaderboard();
-                this.xpGems.push(new XPGem(this.enemies[i].x, this.enemies[i].y, this.enemies[i].xpReward));
+            const enemy = this.enemies[i];
+            // Find nearest living target
+            let nearestTarget = this.player;
+            let nearestDist = Math.hypot(this.player.x - enemy.x, this.player.y - enemy.y);
+            for (const bot of this.pvpBots) {
+                if (bot.dead) continue;
+                const d = Math.hypot(bot.x - enemy.x, bot.y - enemy.y);
+                if (d < nearestDist) {
+                    nearestDist = d;
+                    nearestTarget = bot;
+                }
+            }
+            enemy.update(dt, nearestTarget, this);
+            if (enemy.dead) {
+                // Mob killed — award points to nearest entity
+                if (nearestTarget === this.player) {
+                    this.pvpScore += PVP_SCORE.KILL;
+                    this._updatePlayerLeaderboard();
+                } else {
+                    // Bot killed the mob
+                    nearestTarget.score += PVP_SCORE.KILL;
+                    const lbEntry = this.pvpLeaderboard.find(e => e.name === nearestTarget.name);
+                    if (lbEntry) lbEntry.score += PVP_SCORE.KILL;
+                }
+                this.xpGems.push(new XPGem(enemy.x, enemy.y, enemy.xpReward));
                 this.enemies.splice(i, 1);
             }
         }
+
 
         // XP Gems (auto-pickup in PVP)
         for (let i = this.xpGems.length - 1; i >= 0; i--) {

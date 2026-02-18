@@ -1,19 +1,13 @@
 {
-  "version": 2,
-  "builds": [
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": ".",
+  "headers": [
     {
-      "src": "backend.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "backend.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
     }
   ]
 }

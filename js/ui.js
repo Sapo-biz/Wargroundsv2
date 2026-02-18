@@ -1638,17 +1638,28 @@ class UIManager {
         const lb = this.game.pvpLeaderboard;
         if (!lb || lb.length === 0) return;
 
+        // Build a color lookup from server players (pvpClient.players has color)
+        const colorMap = {};
+        const client = this.game.pvpClient;
+        if (client && client.players) {
+            for (const p of client.players) {
+                colorMap[p.id] = p.c;
+            }
+        }
+
         // Sort by score descending
         const sorted = [...lb].sort((a, b) => b.score - a.score);
         let html = '';
+        const myId = client ? client.playerId : null;
         for (let i = 0; i < Math.min(sorted.length, 10); i++) {
             const entry = sorted[i];
-            const isYou = !entry.isBot;
+            const isYou = (entry.id === myId);
             const deadClass = !entry.alive ? ' pvp-lb-dead' : '';
             const youClass = isYou ? ' pvp-lb-you' : '';
+            const color = colorMap[entry.id] || entry.color || (isYou ? '#00ccff' : '#aaa');
             html += `<div class="pvp-lb-entry${deadClass}${youClass}">
                 <span class="pvp-lb-rank">${i + 1}</span>
-                <span class="pvp-lb-name" style="color:${entry.color}">${entry.name}</span>
+                <span class="pvp-lb-name" style="color:${color}">${entry.name}</span>
                 <span class="pvp-lb-score">${entry.score.toLocaleString()}</span>
             </div>`;
         }
@@ -1664,17 +1675,19 @@ class UIManager {
         const statsEl = document.getElementById('pvpVictoryStats');
         const zone = stats.zone;
         const lb = stats.leaderboard || [];
-        // Find player rank
-        const playerEntry = lb.find(e => !e.isBot);
-        const rank = playerEntry ? lb.indexOf(playerEntry) + 1 : '-';
+        // Find player rank (look for matching id or fallback to non-bot)
+        const myId = this.game.pvpClient ? this.game.pvpClient.playerId : null;
+        const playerEntry = myId ? lb.find(e => e.id === myId) : lb.find(e => !e.isBot);
+        const rank = stats.rank || (playerEntry ? lb.indexOf(playerEntry) + 1 : '-');
 
         let lbHtml = '<div class="pvp-final-lb">';
         for (let i = 0; i < Math.min(lb.length, 10); i++) {
             const e = lb[i];
-            const isYou = !e.isBot;
+            const isYou = myId ? (e.id === myId) : !e.isBot;
+            const color = e.color || (isYou ? '#00ccff' : '#aaa');
             lbHtml += `<div class="pvp-lb-entry${isYou ? ' pvp-lb-you' : ''}">
                 <span class="pvp-lb-rank">${i + 1}</span>
-                <span class="pvp-lb-name" style="color:${e.color}">${e.name}</span>
+                <span class="pvp-lb-name" style="color:${color}">${e.name}</span>
                 <span class="pvp-lb-score">${e.score.toLocaleString()}</span>
             </div>`;
         }

@@ -43,6 +43,7 @@ class Game {
         this.pvpOrbTimer = 0;
         this.pvpRegenTimer = 0;   // time since last damage
         this.pvpLastZoneId = null;
+        this.pvpClient = new PVPClient(this);
 
         // Mod
         this.modEnabled = false;
@@ -428,7 +429,7 @@ class Game {
         this.saveData.totalRuns++;
     }
 
-    // ─── Global PVP Mode ───
+    // ─── Global PVP Mode (Server-Connected) ───
     startPVP(zoneId) {
         const zone = PVP_ZONES.find(z => z.id === zoneId);
         if (!zone) return;
@@ -450,58 +451,35 @@ class Game {
         this.pvpScore = 0;
         this.pvpBots = [];
         this.pvpOrbs = [];
-        this.pvpMobTimer = zone.mobSpawnInterval;
-        this.pvpOrbTimer = 2;
-        this.pvpRegenTimer = PVP_REGEN_DELAY;
+        this.pvpArenaSize = zone.arenaSize;
 
-        const arena = zone.arenaSize;
-        this.pvpArenaSize = arena;
-        const cx = CONFIG.WORLD_SIZE / 2;
-        const cy = CONFIG.WORLD_SIZE / 2;
-
-        // Create player
-        this.player = new Player(this, 0);
-        this.player.x = cx + (Math.random() - 0.5) * arena * 0.5;
-        this.player.y = cy + (Math.random() - 0.5) * arena * 0.5;
-
-        // Set zone HP & disable normal regen (use PVP regen)
-        this.player.baseStats.maxHp = zone.hp;
-        this.player.hp = zone.hp;
-        this.player.baseStats.hpRegen = 0; // PVP handles regen separately
-        this.player._pvpRegenRate = zone.regen;
-
-        // Equip ALL eligible petals from permanent inventory
+        // Build petal list from permanent inventory
         const stash = this.saveData.permInventory || [];
         const eligible = stash.filter(p => zone.allowedRarities.includes(p.rarity));
         const sorted = [...eligible].sort((a, b) => RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity));
+        let petals;
         if (sorted.length > 0) {
-            for (const p of sorted) this.player.addOrbital(p.type, p.rarity);
+            petals = sorted.map(p => ({ type: p.type, rarity: p.rarity }));
         } else {
-            // No eligible petals — give 5 basic ones
-            for (let i = 0; i < 5; i++) this.player.addOrbital(randomOrbitalType(), zone.allowedRarities[0] || 'common');
+            petals = [];
+            for (let i = 0; i < 5; i++) petals.push({ type: randomOrbitalType(), rarity: zone.allowedRarities[0] || 'common' });
         }
 
-        // Create bots
-        this.pvpLeaderboard = [];
-        const botNames = ['Glider', 'Scorch', 'Phantom', 'Blitz', 'Nebula', 'Frostbite', 'Viper', 'Eclipse', 'Shadow', 'Bolt', 'Tempest', 'Nova'];
-        const botColors = ['#ff6666', '#66ff66', '#ffaa44', '#ff44cc', '#44ccff', '#ccff44', '#ff8888', '#88ffcc'];
-        for (let i = 0; i < zone.botCount; i++) {
-            const bot = this._createPVPBot(zone, cx, cy, arena, i, botNames, botColors);
-            this.pvpBots.push(bot);
-            this.pvpLeaderboard.push({ name: bot.name, score: 0, color: bot.color, alive: true, isBot: true });
-        }
+        // Player name
+        const userName = this.saveData.username || (this.googleAuth && this.googleAuth.user ? this.googleAuth.user.name : 'Player');
 
-        // Add player to leaderboard
-        const userName = this.saveData.username || (this.googleAuth && this.googleAuth.user ? this.googleAuth.user.name : 'You');
-        this.pvpLeaderboard.push({ name: userName, score: 0, color: '#00ccff', alive: true, isBot: false });
+        // Connect to server via WebSocket
+        this.pvpClient.connect(zoneId, {
+            name: userName,
+            petals,
+            color: '#00ccff',
+        });
 
-        // Spawn initial orbs
-        for (let i = 0; i < 15; i++) {
-            this._spawnPVPOrb(cx, cy, arena);
-        }
-
-        this.camera.x = this.player.x;
-        this.camera.y = this.player.y;
+        // Set camera to arena center while waiting for server
+        const cx = CONFIG.WORLD_SIZE / 2;
+        const cy = CONFIG.WORLD_SIZE / 2;
+        this.camera.x = cx;
+        this.camera.y = cy;
 
         this.ui.hideAllScreens();
         this.ui.showPVPHud();
@@ -570,6 +548,7 @@ class Game {
     }
 
     exitPVP() {
+        this.pvpClient.disconnect();
         this.pvpMode = false;
         this.state = 'menu';
         if (this.touch) this.touch.hide();
@@ -582,6 +561,7 @@ class Game {
     }
 
     endPVP() {
+        this.pvpClient.disconnect();
         this.pvpMode = false;
         this.state = 'menu';
         if (this.touch) this.touch.hide();
@@ -764,240 +744,36 @@ class Game {
     }
 
     updatePVP(dt) {
-        if (!this.player) return;
+        const client = this.pvpClient;
+        if (!client.connected && !client.ws) return;
+
         this.pvpTime += dt;
 
-        const zone = this.pvpZone;
-        const arena = this.pvpArenaSize;
-        const cx = CONFIG.WORLD_SIZE / 2;
-        const cy = CONFIG.WORLD_SIZE / 2;
-        const halfArena = arena / 2;
+        // Advance interpolation factor
+        client.interpFactor += dt / (client.stateInterval / 1000);
 
-        // Player regen (5s no-damage)
-        this.pvpRegenTimer += dt;
-        if (this.pvpRegenTimer >= PVP_REGEN_DELAY && this.player.hp < this.player.maxHp) {
-            this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.player._pvpRegenRate * dt);
+        // Read input and send to server
+        const move = this.input.getMoveDir();
+        const wantDash = this.input.keys['q'] || this.input.keys['keyq'] || this.input.keys['/'];
+        client.sendInput(move.dx, move.dy, wantDash);
+
+        // Sync server data to game properties for UI compatibility
+        this.pvpScore = client.myScore;
+        this.pvpLeaderboard = client.leaderboard;
+
+        // Follow our player's server position
+        const me = client.getMyPlayer();
+        if (me && !me.d) {
+            const pos = client.getInterpolatedPos(me);
+            this.camera.follow(pos.x, pos.y);
         }
-
-        // Update player
-        this.player.update(dt, this.input);
-
-        // Clamp player to arena
-        this.player.x = Math.max(cx - halfArena + this.player.radius, Math.min(cx + halfArena - this.player.radius, this.player.x));
-        this.player.y = Math.max(cy - halfArena + this.player.radius, Math.min(cy + halfArena - this.player.radius, this.player.y));
-
-        // Update bots
-        for (const bot of this.pvpBots) {
-            if (bot.dead) {
-                bot.respawnTimer -= dt;
-                if (bot.respawnTimer <= 0) {
-                    // Respawn bot
-                    bot.dead = false;
-                    bot.hp = bot.maxHp;
-                    bot.x = cx + (Math.random() - 0.5) * arena * 0.8;
-                    bot.y = cy + (Math.random() - 0.5) * arena * 0.8;
-                    bot.invulnTimer = 2;
-                    // Restore orbitals
-                    for (const o of bot.orbitals) { o.respawn(); }
-                    const lbEntry = this.pvpLeaderboard.find(e => e.name === bot.name);
-                    if (lbEntry) lbEntry.alive = true;
-                }
-                continue;
-            }
-            this._updateBotAI(bot, dt);
-        }
-
-        // Player orbitals damage bots
-        for (const o of this.player.orbitals) {
-            if (o.dead || o.reloading) continue;
-            const opos = o.getWorldPos(this.player);
-            for (const bot of this.pvpBots) {
-                if (bot.dead || bot.invulnTimer > 0) continue;
-                const dist = Math.hypot(opos.x - bot.x, opos.y - bot.y);
-                if (dist < bot.radius + 10) {
-                    const dmg = o.getDamage(this.player.damage) * 0.3;
-                    this._damageBot(bot, dmg, 'player');
-                    o.takePetalDamage(dmg * 0.1, this);
-                }
-            }
-        }
-
-        // Bot orbitals damage player
-        for (const bot of this.pvpBots) {
-            if (bot.dead) continue;
-            for (const o of bot.orbitals) {
-                if (o.dead || o.reloading) continue;
-                const opos = this._getBotOrbitalPos(bot, o);
-                const dist = Math.hypot(opos.x - this.player.x, opos.y - this.player.y);
-                if (dist < this.player.radius + 10) {
-                    const dmg = o.getDamage(1) * 0.3;
-                    this.player.takeDamage(dmg);
-                    this.pvpRegenTimer = 0; // reset regen
-                    o.takePetalDamage(dmg * 0.1, this);
-                }
-            }
-        }
-
-        // Bot vs bot orbital combat
-        for (let i = 0; i < this.pvpBots.length; i++) {
-            const botA = this.pvpBots[i];
-            if (botA.dead) continue;
-            for (let j = i + 1; j < this.pvpBots.length; j++) {
-                const botB = this.pvpBots[j];
-                if (botB.dead) continue;
-                const dist = Math.hypot(botA.x - botB.x, botA.y - botB.y);
-                if (dist > 150) continue; // skip distant bots
-                // A's orbitals hit B
-                for (const o of botA.orbitals) {
-                    if (o.dead || o.reloading) continue;
-                    const opos = this._getBotOrbitalPos(botA, o);
-                    const d = Math.hypot(opos.x - botB.x, opos.y - botB.y);
-                    if (d < botB.radius + 10) {
-                        const dmg = o.getDamage(1) * 0.25;
-                        this._damageBot(botB, dmg, botA);
-                        o.takePetalDamage(dmg * 0.1, this);
-                    }
-                }
-                // B's orbitals hit A
-                for (const o of botB.orbitals) {
-                    if (o.dead || o.reloading) continue;
-                    const opos = this._getBotOrbitalPos(botB, o);
-                    const d = Math.hypot(opos.x - botA.x, opos.y - botA.y);
-                    if (d < botA.radius + 10) {
-                        const dmg = o.getDamage(1) * 0.25;
-                        this._damageBot(botA, dmg, botB);
-                        o.takePetalDamage(dmg * 0.1, this);
-                    }
-                }
-            }
-        }
-
-        // Projectiles
-        for (let i = this.projectiles.length - 1; i >= 0; i--) {
-            const p = this.projectiles[i];
-            p.update(dt, this);
-            if (p.dead) { this.projectiles.splice(i, 1); continue; }
-            // Check hit on bots
-            for (const bot of this.pvpBots) {
-                if (bot.dead) continue;
-                const d = Math.hypot(p.x - bot.x, p.y - bot.y);
-                if (d < bot.radius + p.size) {
-                    this._damageBot(bot, p.damage * 0.3, 'player');
-                    p.dead = true;
-                    break;
-                }
-            }
-            if (p.dead) { this.projectiles.splice(i, 1); continue; }
-        }
-
-        // Orb collection (player)
-        for (const orb of this.pvpOrbs) {
-            if (orb.dead) continue;
-            const d = Math.hypot(this.player.x - orb.x, this.player.y - orb.y);
-            if (d < this.player.radius + orb.radius + 20) {
-                orb.dead = true;
-                this.pvpScore += PVP_SCORE.ORB;
-                this._updatePlayerLeaderboard();
-                this.particles.burst(orb.x, orb.y, 6, '#ffff44', 60, 0.3, 2);
-                this.audio.play('pickup', 0.3);
-            }
-        }
-
-        // Orb collection (bots)
-        for (const bot of this.pvpBots) {
-            if (bot.dead) continue;
-            for (const orb of this.pvpOrbs) {
-                if (orb.dead) continue;
-                const d = Math.hypot(bot.x - orb.x, bot.y - orb.y);
-                if (d < bot.radius + orb.radius + 15) {
-                    orb.dead = true;
-                    bot.score += PVP_SCORE.ORB;
-                    const lbEntry = this.pvpLeaderboard.find(e => e.name === bot.name);
-                    if (lbEntry) lbEntry.score += PVP_SCORE.ORB;
-                    this.particles.burst(orb.x, orb.y, 4, '#ffff44', 40, 0.2, 2);
-                }
-            }
-        }
-
-        // Remove dead orbs and respawn
-        this.pvpOrbs = this.pvpOrbs.filter(o => !o.dead);
-        this.pvpOrbTimer -= dt;
-        if (this.pvpOrbTimer <= 0 && this.pvpOrbs.length < 25) {
-            this._spawnPVPOrb(cx, cy, arena);
-            this.pvpOrbTimer = 1.5 + Math.random() * 2;
-        }
-
-        // Periodic mob spawns (much less than waves)
-        this.pvpMobTimer -= dt;
-        if (this.pvpMobTimer <= 0 && this.enemies.length < 12) {
-            this._spawnPVPMob(cx, cy, arena);
-            this.pvpMobTimer = zone.mobSpawnInterval + Math.random() * 3;
-        }
-
-        // Update enemies (mobs) — target nearest entity (player or bot)
-        for (let i = this.enemies.length - 1; i >= 0; i--) {
-            const enemy = this.enemies[i];
-            // Find nearest living target
-            let nearestTarget = this.player;
-            let nearestDist = Math.hypot(this.player.x - enemy.x, this.player.y - enemy.y);
-            for (const bot of this.pvpBots) {
-                if (bot.dead) continue;
-                const d = Math.hypot(bot.x - enemy.x, bot.y - enemy.y);
-                if (d < nearestDist) {
-                    nearestDist = d;
-                    nearestTarget = bot;
-                }
-            }
-            enemy.update(dt, nearestTarget, this);
-            if (enemy.dead) {
-                // Mob killed — award points to nearest entity
-                if (nearestTarget === this.player) {
-                    this.pvpScore += PVP_SCORE.KILL;
-                    this._updatePlayerLeaderboard();
-                } else {
-                    // Bot killed the mob
-                    nearestTarget.score += PVP_SCORE.KILL;
-                    const lbEntry = this.pvpLeaderboard.find(e => e.name === nearestTarget.name);
-                    if (lbEntry) lbEntry.score += PVP_SCORE.KILL;
-                }
-                this.xpGems.push(new XPGem(enemy.x, enemy.y, enemy.xpReward));
-                this.enemies.splice(i, 1);
-            }
-        }
-
-
-        // XP Gems (auto-pickup in PVP)
-        for (let i = this.xpGems.length - 1; i >= 0; i--) {
-            const gem = this.xpGems[i];
-            gem.update(dt, this.player, this);
-            if (gem.dead) this.xpGems.splice(i, 1);
-        }
-
-        // Camera follows player
-        this.camera.follow(this.player.x, this.player.y);
         this.camera.update(dt);
 
         // Particles
         this.particles.update(dt);
 
-        // Update PVP HUD
-        this.ui.updatePVPHud(this.player, null);
-
-        // Player death
-        if (this.player.hp <= 0 && this.state === 'pvp') {
-            this.state = 'pvp_over';
-            if (this.touch) this.touch.hide();
-            this.camera.addShake(0.6);
-            this.particles.burst(this.player.x, this.player.y, 40, '#00ccff', 250, 1, 5);
-            setTimeout(() => {
-                this.ui.showPVPVictory(null, { 
-                    time: this.pvpTime, 
-                    score: this.pvpScore,
-                    zone: this.pvpZone,
-                    leaderboard: [...this.pvpLeaderboard].sort((a, b) => b.score - a.score),
-                });
-            }, 800);
-        }
+        // Update PVP HUD from server state
+        this.ui.updatePVPHud(me ? { hp: client.myHp, maxHp: client.myMaxHp } : null, null);
     }
 
     _spawnPVPMob(cx, cy, arena) {
@@ -1432,6 +1208,7 @@ class Game {
 
     renderPVPArena() {
         const cam = this.camera;
+        const client = this.pvpClient;
         const cx = CONFIG.WORLD_SIZE / 2;
         const cy = CONFIG.WORLD_SIZE / 2;
         const halfArena = this.pvpArenaSize / 2;
@@ -1472,13 +1249,15 @@ class Game {
         ctx.strokeRect(bx, by, bw, bh);
         ctx.globalAlpha = 1;
 
-        // Danger zone warning near edges
-        if (this.player) {
+        // Danger zone warning near edges (use our server position)
+        const me = client.getMyPlayer();
+        if (me && !me.d) {
+            const myPos = client.getInterpolatedPos(me);
             const edgeDist = Math.min(
-                this.player.x - (cx - halfArena),
-                (cx + halfArena) - this.player.x,
-                this.player.y - (cy - halfArena),
-                (cy + halfArena) - this.player.y
+                myPos.x - (cx - halfArena),
+                (cx + halfArena) - myPos.x,
+                myPos.y - (cy - halfArena),
+                (cy + halfArena) - myPos.y
             );
             if (edgeDist < 100) {
                 const alpha = (1 - edgeDist / 100) * 0.15;
@@ -1487,9 +1266,9 @@ class Game {
             }
         }
 
-        // Draw orbs (collectible glowing dots)
-        for (const orb of this.pvpOrbs) {
-            if (orb.dead) continue;
+        // Draw orbs from server state
+        const orbs = client.orbs || [];
+        for (const orb of orbs) {
             const sx = cam.screenX(orb.x);
             const sy = cam.screenY(orb.y);
             const pulse = 1 + Math.sin(Date.now() * 0.005 + orb.x) * 0.3;
@@ -1505,7 +1284,7 @@ class Game {
             // Core
             ctx.fillStyle = '#ffff55';
             ctx.beginPath();
-            ctx.arc(sx, sy, orb.radius || 6, 0, Math.PI * 2);
+            ctx.arc(sx, sy, 6, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = '#ffffff';
             ctx.beginPath();
@@ -1513,58 +1292,103 @@ class Game {
             ctx.fill();
         }
 
-        // Draw enemies (mobs)
-        for (const e of this.enemies) {
-            if (cam.isVisible(e.x, e.y)) e.draw(ctx, cam);
+        // Draw mobs from server state
+        const mobs = client.mobs || [];
+        for (const mob of mobs) {
+            const msx = cam.screenX(mob.x);
+            const msy = cam.screenY(mob.y);
+            const mr = mob.r || 20;
+            // Body
+            const etype = ENEMY_TYPES[mob.k];
+            ctx.fillStyle = etype ? etype.color : '#ff4444';
+            ctx.beginPath();
+            if (mob.s === 'triangle') {
+                ctx.moveTo(msx, msy - mr);
+                ctx.lineTo(msx - mr * 0.87, msy + mr * 0.5);
+                ctx.lineTo(msx + mr * 0.87, msy + mr * 0.5);
+                ctx.closePath();
+            } else if (mob.s === 'square') {
+                ctx.rect(msx - mr * 0.7, msy - mr * 0.7, mr * 1.4, mr * 1.4);
+            } else if (mob.s === 'pentagon') {
+                for (let i = 0; i < 5; i++) {
+                    const a = -Math.PI / 2 + (i * 2 * Math.PI / 5);
+                    const px = msx + Math.cos(a) * mr;
+                    const py = msy + Math.sin(a) * mr;
+                    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+            } else {
+                ctx.arc(msx, msy, mr, 0, Math.PI * 2);
+            }
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            // Mob HP bar
+            if (mob.hp < mob.mhp) {
+                const hpPct = mob.hp / mob.mhp;
+                const hpW = mr * 2;
+                const hpH = 4;
+                const hpX = msx - hpW / 2;
+                const hpY = msy - mr - 8;
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(hpX, hpY, hpW, hpH);
+                ctx.fillStyle = hpPct > 0.5 ? '#4ade80' : hpPct > 0.25 ? '#facc15' : '#ef4444';
+                ctx.fillRect(hpX, hpY, hpW * hpPct, hpH);
+            }
         }
 
-        // Draw XP gems
-        for (const gem of this.xpGems) {
-            gem.draw(ctx, cam);
+        // Draw projectiles from server state
+        const projs = client.projectiles || [];
+        for (const p of projs) {
+            const psx = cam.screenX(p.x);
+            const psy = cam.screenY(p.y);
+            ctx.fillStyle = '#ffaa00';
+            ctx.beginPath();
+            ctx.arc(psx, psy, 4, 0, Math.PI * 2);
+            ctx.fill();
         }
 
-        // Projectiles
-        for (const p of this.projectiles) {
-            if (cam.isVisible(p.x, p.y)) p.draw(ctx, cam);
-        }
-
-        // Draw bots
-        for (const bot of this.pvpBots) {
-            if (bot.dead) continue;
-            const bsx = cam.screenX(bot.x);
-            const bsy = cam.screenY(bot.y);
-            const br = bot.radius;
+        // Draw all players/bots from server state
+        const players = client.players || [];
+        const myId = client.playerId;
+        for (const p of players) {
+            if (p.d) continue; // dead
+            const isMe = (p.id === myId);
+            const pos = client.getInterpolatedPos(p);
+            const psx = cam.screenX(pos.x);
+            const psy = cam.screenY(pos.y);
+            const pr = p.r || CONFIG.BASE_PLAYER_RADIUS;
 
             // Invuln shimmer
-            if (bot.invulnTimer > 0) {
+            if (p.inv) {
                 ctx.globalAlpha = 0.4 + Math.sin(Date.now() * 0.02) * 0.3;
             }
 
             // Damage flash
-            if (bot.damageFlash > 0) {
-                ctx.fillStyle = '#ffffff';
-            } else {
-                ctx.fillStyle = bot.color;
-            }
+            ctx.fillStyle = p.df ? '#ffffff' : p.c;
 
-            // Draw bot body (flower shape)
+            // Draw body
             ctx.beginPath();
-            ctx.arc(bsx, bsy, br, 0, Math.PI * 2);
+            ctx.arc(psx, psy, pr, 0, Math.PI * 2);
             ctx.fill();
             ctx.strokeStyle = 'rgba(0,0,0,0.3)';
             ctx.lineWidth = 2;
             ctx.stroke();
 
-            // Draw bot orbitals (petals)
-            for (const o of bot.orbitals) {
-                if (o.dead || o.reloading) continue;
-                const opos = this._getBotOrbitalPos(bot, o);
-                const osx = cam.screenX(opos.x);
-                const osy = cam.screenY(opos.y);
-                const cfg = ORBITAL_TYPES[o.type];
-                const petalR = cfg.size || 8;
-                const rInfo = RARITIES[o.rarity];
-                ctx.fillStyle = rInfo ? rInfo.color : cfg.color;
+            // Draw orbitals (petals) from server data
+            const orbitals = p.orbs || [];
+            for (const o of orbitals) {
+                if (o.rl) continue; // reloading
+                // Calculate orbital world position from angle + orbit distance
+                const owx = pos.x + Math.cos(o.a) * o.od;
+                const owy = pos.y + Math.sin(o.a) * o.od;
+                const osx = cam.screenX(owx);
+                const osy = cam.screenY(owy);
+                const cfg = ORBITAL_TYPES[o.t];
+                const petalR = cfg ? (cfg.size || 8) : 8;
+                const rInfo = RARITIES[o.ra];
+                ctx.fillStyle = rInfo ? rInfo.color : (cfg ? cfg.color : '#888');
                 ctx.beginPath();
                 ctx.arc(osx, osy, petalR, 0, Math.PI * 2);
                 ctx.fill();
@@ -1575,26 +1399,48 @@ class Game {
 
             ctx.globalAlpha = 1;
 
-            // Bot name
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 11px monospace';
+            // Name
+            ctx.fillStyle = isMe ? '#00f0ff' : '#ffffff';
+            ctx.font = isMe ? 'bold 13px monospace' : 'bold 11px monospace';
             ctx.textAlign = 'center';
-            ctx.fillText(bot.name, bsx, bsy - br - 8);
+            ctx.fillText(p.n, psx, psy - pr - 8);
 
-            // Bot HP bar
-            const hpPct = bot.hp / bot.maxHp;
-            const hpW = 40;
-            const hpH = 4;
-            const hpX = bsx - hpW / 2;
-            const hpY = bsy - br - 18;
+            // HP bar
+            const hpPct = p.hp / p.mhp;
+            const hpW = isMe ? 50 : 40;
+            const hpH = isMe ? 5 : 4;
+            const hpX = psx - hpW / 2;
+            const hpY = psy - pr - (isMe ? 22 : 18);
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
             ctx.fillRect(hpX, hpY, hpW, hpH);
             ctx.fillStyle = hpPct > 0.5 ? '#4ade80' : hpPct > 0.25 ? '#facc15' : '#ef4444';
             ctx.fillRect(hpX, hpY, hpW * hpPct, hpH);
+
+            // Score tag (small under name for non-self)
+            if (!isMe && p.s > 0) {
+                ctx.fillStyle = '#aaaaaa';
+                ctx.font = '9px monospace';
+                ctx.fillText(p.s.toLocaleString() + ' pts', psx, psy + pr + 12);
+            }
         }
 
-        // Draw player
-        if (this.player) this.player.draw(ctx, cam);
+        // Ping indicator (top-right corner)
+        if (client.pingMs > 0) {
+            ctx.fillStyle = client.pingMs < 80 ? '#4ade80' : client.pingMs < 150 ? '#facc15' : '#ef4444';
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText(`${client.pingMs}ms`, canvas.width - 10, 20);
+        }
+
+        // Connection status
+        if (!client.connected) {
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#ffaa00';
+            ctx.font = 'bold 24px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('Connecting...', canvas.width / 2, canvas.height / 2);
+        }
 
         // Particles
         this.particles.draw(ctx, cam);

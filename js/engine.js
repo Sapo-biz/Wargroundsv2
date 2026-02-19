@@ -404,6 +404,15 @@ function drawShape(ctx, x, y, r, shape, color, alpha = 1) {
             ctx.moveTo(x, y - r); ctx.lineTo(x + r, y);
             ctx.lineTo(x, y + r); ctx.lineTo(x - r, y);
             ctx.closePath(); break;
+        case 'pentagon':
+            for (let i = 0; i < 5; i++) {
+                const a = -Math.PI / 2 + (i * 2 * Math.PI / 5);
+                const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+                i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+            }
+            ctx.closePath(); break;
+        default:
+            ctx.arc(x, y, r, 0, Math.PI * 2); break;
     }
     ctx.fill();
     ctx.globalAlpha = 1;

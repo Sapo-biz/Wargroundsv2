@@ -778,8 +778,12 @@ class Game {
             this.ui.renderPVPOrbitalSlots(me.orbs, client.myMaxSlots);
         }
 
-        // Re-render inventory periodically (synced from server via state)
-        this.ui.renderInventory();
+        // Only re-render inventory when it actually changes (avoid per-frame DOM thrash)
+        const invKey = JSON.stringify(this.inventory);
+        if (invKey !== this._lastInvKey) {
+            this._lastInvKey = invKey;
+            this.ui.renderInventory();
+        }
 
         // Minimap
         this.pvpMinimapTimer = (this.pvpMinimapTimer || 0) + dt;
@@ -1305,64 +1309,65 @@ class Game {
             ctx.fill();
         }
 
-        // Draw mobs from server state
+        // Draw mobs from server state (matching wave-mode Enemy.draw)
         const mobs = client.mobs || [];
         for (const mob of mobs) {
             const msx = cam.screenX(mob.x);
             const msy = cam.screenY(mob.y);
             const mr = mob.r || 20;
-            // Body
             const etype = ENEMY_TYPES[mob.k];
-            ctx.fillStyle = etype ? etype.color : '#ff4444';
-            ctx.beginPath();
-            if (mob.s === 'triangle') {
-                ctx.moveTo(msx, msy - mr);
-                ctx.lineTo(msx - mr * 0.87, msy + mr * 0.5);
-                ctx.lineTo(msx + mr * 0.87, msy + mr * 0.5);
-                ctx.closePath();
-            } else if (mob.s === 'square') {
-                ctx.rect(msx - mr * 0.7, msy - mr * 0.7, mr * 1.4, mr * 1.4);
-            } else if (mob.s === 'pentagon') {
-                for (let i = 0; i < 5; i++) {
-                    const a = -Math.PI / 2 + (i * 2 * Math.PI / 5);
-                    const px = msx + Math.cos(a) * mr;
-                    const py = msy + Math.sin(a) * mr;
-                    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-                }
-                ctx.closePath();
-            } else {
-                ctx.arc(msx, msy, mr, 0, Math.PI * 2);
+            const mobColor = etype ? etype.color : '#ff4444';
+            const mobShape = mob.s || (etype ? etype.shape : 'circle');
+            const isBoss = mr > 30; // heuristic: bosses are large
+
+            // Boss aura glow
+            if (isBoss) {
+                drawGlow(ctx, msx, msy, mr + 10, mobColor, 0.4);
             }
-            ctx.fill();
-            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            // Mob HP bar
-            if (mob.hp < mob.mhp) {
+
+            // Body using drawShape helper
+            drawShape(ctx, msx, msy, mr, mobShape, mobColor);
+
+            // Eyes (for mobs with radius > 10)
+            if (mr > 10) {
+                const eyeOff = mr * 0.3;
+                drawCircle(ctx, msx - eyeOff, msy - eyeOff * 0.5, mr * 0.15, '#000');
+                drawCircle(ctx, msx + eyeOff, msy - eyeOff * 0.5, mr * 0.15, '#000');
+            }
+
+            // HP bar for bosses or damaged mobs
+            if (isBoss || mob.hp < mob.mhp) {
                 const hpPct = mob.hp / mob.mhp;
                 const hpW = mr * 2;
-                const hpH = 4;
+                const hpH = isBoss ? 6 : 3;
                 const hpX = msx - hpW / 2;
-                const hpY = msy - mr - 8;
+                const hpY = msy - mr - 10;
                 ctx.fillStyle = 'rgba(0,0,0,0.5)';
                 ctx.fillRect(hpX, hpY, hpW, hpH);
-                ctx.fillStyle = hpPct > 0.5 ? '#4ade80' : hpPct > 0.25 ? '#facc15' : '#ef4444';
+                ctx.fillStyle = hpPct > 0.3 ? '#44ff44' : '#ff4444';
                 ctx.fillRect(hpX, hpY, hpW * hpPct, hpH);
+            }
+
+            // Boss name
+            if (isBoss && etype) {
+                ctx.font = 'bold 12px system-ui';
+                ctx.fillStyle = mobColor;
+                ctx.textAlign = 'center';
+                ctx.fillText(etype.name || mob.k, msx, msy - mr - 16);
             }
         }
 
-        // Draw projectiles from server state
+        // Draw projectiles from server state (with glow)
         const projs = client.projectiles || [];
         for (const p of projs) {
             const psx = cam.screenX(p.x);
             const psy = cam.screenY(p.y);
-            ctx.fillStyle = '#ffaa00';
-            ctx.beginPath();
-            ctx.arc(psx, psy, 4, 0, Math.PI * 2);
-            ctx.fill();
+            drawGlow(ctx, psx, psy, 6, '#ffaa00', 0.4);
+            drawCircle(ctx, psx, psy, 4, '#ffaa00');
+            drawCircle(ctx, psx, psy, 2, '#ffffff', 0.8);
         }
 
-        // Draw all players/bots from server state
+        // Draw all players/bots from server state (matching wave-mode Player.draw + Orbital.draw)
         const players = client.players || [];
         const myId = client.playerId;
         for (const p of players) {
@@ -1373,41 +1378,112 @@ class Game {
             const psy = cam.screenY(pos.y);
             const pr = p.r || CONFIG.BASE_PLAYER_RADIUS;
 
-            // Invuln shimmer
-            if (p.inv) {
-                ctx.globalAlpha = 0.4 + Math.sin(Date.now() * 0.02) * 0.3;
+            // Resolve skin (for local player, use saved skin; others use server color)
+            let bodyColor = p.c;
+            let glowColor = p.c;
+            let highlightCol = '#aaeeff';
+            if (isMe) {
+                const skinId = this.saveData ? this.saveData.activeSkin : 'default';
+                const skin = PLAYER_SKINS.find(s => s.id === skinId) || PLAYER_SKINS[0];
+                const isPrism = skin.bodyColor === 'prism';
+                bodyColor = isPrism ? `hsl(${(Date.now() * 0.15) % 360}, 85%, 60%)` : skin.bodyColor;
+                glowColor = isPrism ? bodyColor : skin.glowColor;
+                highlightCol = skin.highlightColor;
             }
 
-            // Damage flash
-            ctx.fillStyle = p.df ? '#ffffff' : p.c;
+            // Invuln override
+            if (p.inv) {
+                bodyColor = '#ffffff';
+                ctx.globalAlpha = 0.5 + Math.sin(Date.now() * 0.02) * 0.3;
+            }
 
-            // Draw body
-            ctx.beginPath();
-            ctx.arc(psx, psy, pr, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-            ctx.lineWidth = 2;
-            ctx.stroke();
+            // Damage flash override
+            if (p.df) {
+                bodyColor = '#ffffff';
+            }
 
-            // Draw orbitals (petals) from server data
+            // Body glow
+            drawGlow(ctx, psx, psy, pr + 5, glowColor, 0.4);
+
+            // Body
+            const flashAlpha = p.df ? (0.5 + Math.sin(Date.now() * 0.05) * 0.5) : 1;
+            drawCircle(ctx, psx, psy, pr, bodyColor, flashAlpha);
+
+            // Inner highlight
+            drawCircle(ctx, psx - 4, psy - 4, pr * 0.4, highlightCol, 0.6);
+
+            // Dash cooldown ring (server sends dc = dashCooldown remaining)
+            if (p.dc > 0) {
+                const pct = 1 - (p.dc / 3); // 3s total cooldown
+                ctx.globalAlpha = 0.4;
+                ctx.strokeStyle = '#00ffff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(psx, psy, pr + 8, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+            } else {
+                // Ready pulse indicator
+                ctx.globalAlpha = 0.15 + Math.sin(Date.now() * 0.005) * 0.1;
+                ctx.strokeStyle = '#00ffff';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.arc(psx, psy, pr + 8, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+            }
+
+            // Draw orbitals (petals) from server data — matching wave-mode Orbital.draw
             const orbitals = p.orbs || [];
-            for (const o of orbitals) {
-                if (o.rl) continue; // reloading
+            for (let oi = 0; oi < orbitals.length; oi++) {
+                const o = orbitals[oi];
+                const cfg = ORBITAL_TYPES[o.t];
+                const rInfo = RARITIES[o.ra];
+                if (!cfg || !rInfo) continue;
+                const petalR = (cfg.size || 8);
+
                 // Calculate orbital world position from angle + orbit distance
                 const owx = pos.x + Math.cos(o.a) * o.od;
                 const owy = pos.y + Math.sin(o.a) * o.od;
                 const osx = cam.screenX(owx);
                 const osy = cam.screenY(owy);
-                const cfg = ORBITAL_TYPES[o.t];
-                const petalR = cfg ? (cfg.size || 8) : 8;
-                const rInfo = RARITIES[o.ra];
-                ctx.fillStyle = rInfo ? rInfo.color : (cfg ? cfg.color : '#888');
-                ctx.beginPath();
-                ctx.arc(osx, osy, petalR, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+
+                // If reloading, show ghost outline with reload ring
+                if (o.rl) {
+                    // Ghost circle
+                    ctx.globalAlpha = 0.15;
+                    drawCircle(ctx, osx, osy, 8, rInfo.color);
+                    ctx.globalAlpha = 1;
+                    // Reload ring (indeterminate spin since we don't have reload progress)
+                    const spin = (Date.now() * 0.003 + oi * 1.5) % (Math.PI * 2);
+                    ctx.strokeStyle = rInfo.color;
+                    ctx.lineWidth = 2;
+                    ctx.globalAlpha = 0.5;
+                    ctx.beginPath();
+                    ctx.arc(osx, osy, 10, spin, spin + Math.PI * 1.2);
+                    ctx.stroke();
+                    ctx.globalAlpha = 1;
+                    continue;
+                }
+
+                // Orbit trail
+                ctx.globalAlpha = 0.1;
+                ctx.strokeStyle = rInfo.color;
                 ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(psx, psy, o.od, 0, Math.PI * 2);
                 ctx.stroke();
+                ctx.globalAlpha = 1;
+
+                // Glow + body (rainbow for divine/cosmic/eternal)
+                if (rInfo.rainbow) {
+                    const hue = (Date.now() * 0.2 + oi * 60) % 360;
+                    drawGlow(ctx, osx, osy, petalR + 4, `hsl(${hue}, 100%, 60%)`, 0.7);
+                    drawCircle(ctx, osx, osy, petalR, `hsl(${hue}, 100%, 60%)`);
+                } else {
+                    drawGlow(ctx, osx, osy, petalR + 3, rInfo.glow, 0.5);
+                    drawCircle(ctx, osx, osy, petalR, rInfo.color);
+                }
             }
 
             ctx.globalAlpha = 1;

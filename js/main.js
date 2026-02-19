@@ -446,24 +446,19 @@ class Game {
         this.xpGems = [];
         this.lootDrops = [];
         this.hazardZones = [];
-        this.inventory = [];
         this.pvpTime = 0;
         this.pvpScore = 0;
         this.pvpBots = [];
         this.pvpOrbs = [];
         this.pvpArenaSize = zone.arenaSize;
+        this.pvpMinimapTimer = 0;
 
-        // Build petal list from permanent inventory
+        // Load full permanent inventory for PVP (nothing equipped initially)
         const stash = this.saveData.permInventory || [];
         const eligible = stash.filter(p => zone.allowedRarities.includes(p.rarity));
-        const sorted = [...eligible].sort((a, b) => RARITY_ORDER.indexOf(b.rarity) - RARITY_ORDER.indexOf(a.rarity));
-        let petals;
-        if (sorted.length > 0) {
-            petals = sorted.map(p => ({ type: p.type, rarity: p.rarity }));
-        } else {
-            petals = [];
-            for (let i = 0; i < 5; i++) petals.push({ type: randomOrbitalType(), rarity: zone.allowedRarities[0] || 'common' });
-        }
+        const inventoryForServer = eligible.map(p => ({ type: p.type, rarity: p.rarity }));
+        this.inventory = eligible.map((p, i) => ({ type: p.type, rarity: p.rarity, id: 'inv_' + i }));
+        this.nextInvId = eligible.length;
 
         // Player name
         const userName = this.saveData.username || (this.googleAuth && this.googleAuth.user ? this.googleAuth.user.name : 'Player');
@@ -471,7 +466,7 @@ class Game {
         // Connect to server via WebSocket
         this.pvpClient.connect(zoneId, {
             name: userName,
-            petals,
+            inventory: inventoryForServer,
             color: '#00ccff',
         });
 
@@ -483,6 +478,7 @@ class Game {
 
         this.ui.hideAllScreens();
         this.ui.showPVPHud();
+        this.ui.renderInventory();
     }
 
     _createPVPBot(zone, cx, cy, arena, idx, names, colors) {
@@ -752,10 +748,12 @@ class Game {
         // Advance interpolation factor
         client.interpFactor += dt / (client.stateInterval / 1000);
 
-        // Read input and send to server
+        // Read input and send to server (including extend/retract)
         const move = this.input.getMoveDir();
         const wantDash = this.input.keys['q'] || this.input.keys['keyq'] || this.input.keys['/'];
-        client.sendInput(move.dx, move.dy, wantDash);
+        const wantExtend = this.input.keys[' '] || this.input.keys['Space'] || false;
+        const wantRetract = this.input.keys['shift'] || this.input.keys['ShiftLeft'] || this.input.keys['ShiftRight'] || false;
+        client.sendInput(move.dx, move.dy, wantDash, wantExtend, wantRetract);
 
         // Sync server data to game properties for UI compatibility
         this.pvpScore = client.myScore;
@@ -774,6 +772,21 @@ class Game {
 
         // Update PVP HUD from server state
         this.ui.updatePVPHud(me ? { hp: client.myHp, maxHp: client.myMaxHp } : null, null);
+
+        // Render orbital slots from server state
+        if (me && me.orbs) {
+            this.ui.renderPVPOrbitalSlots(me.orbs, client.myMaxSlots);
+        }
+
+        // Re-render inventory periodically (synced from server via state)
+        this.ui.renderInventory();
+
+        // Minimap
+        this.pvpMinimapTimer = (this.pvpMinimapTimer || 0) + dt;
+        if (this.pvpMinimapTimer >= 0.5) {
+            this.pvpMinimapTimer = 0;
+            this.ui.renderPVPMinimap();
+        }
     }
 
     _spawnPVPMob(cx, cy, arena) {

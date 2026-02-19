@@ -21,6 +21,8 @@ class PVPClient {
         this.myHp = 0;
         this.myMaxHp = 0;
         this.serverTime = 0;
+        this.myInventory = [];
+        this.myMaxSlots = 8;
 
         // Interpolation
         this.prevPlayers = new Map();  // id → {x, y, ...}
@@ -31,6 +33,8 @@ class PVPClient {
         // Input tracking
         this.lastInputDx = 0;
         this.lastInputDy = 0;
+        this.lastInputExtend = false;
+        this.lastInputRetract = false;
         this.pendingDash = false;
 
         // Connection state
@@ -78,7 +82,7 @@ class PVPClient {
                 type: 'join',
                 zone: zoneId,
                 name: playerData.name,
-                petals: playerData.petals,
+                inventory: playerData.inventory || [],
                 color: playerData.color,
             }));
 
@@ -135,6 +139,8 @@ class PVPClient {
         this.mobs = [];
         this.projectiles = [];
         this.leaderboard = [];
+        this.myInventory = [];
+        this.myMaxSlots = 8;
     }
 
     // ─── Message Handling ───
@@ -143,6 +149,7 @@ class PVPClient {
             case 'joined': {
                 this.playerId = msg.id;
                 this.zoneInfo = msg.zone;
+                this.myMaxSlots = msg.zone.maxSlots || 8;
                 // Update game's arena size from server
                 this.game.pvpArenaSize = msg.zone.arenaSize;
                 this.game.showToast(`Joined ${msg.zone.name}!`, msg.zone.color, true);
@@ -166,6 +173,13 @@ class PVPClient {
                 this.myHp = msg.hp;
                 this.myMaxHp = msg.mhp;
                 this.serverTime = msg.t;
+
+                // Sync inventory from server
+                if (msg.inv) {
+                    this.myInventory = msg.inv;
+                    this.game.inventory = msg.inv;
+                    this.myMaxSlots = msg.ms || 8;
+                }
 
                 // Reset interpolation
                 this.interpFactor = 0;
@@ -212,6 +226,28 @@ class PVPClient {
                 break;
             }
 
+            case 'equipped': {
+                this.game.showToast('Petal equipped!', '#4ade80', false);
+                this.game.audio.play('pickup', 0.5);
+                break;
+            }
+
+            case 'unequipped': {
+                this.game.showToast('Petal stored!', '#aaa', false);
+                this.game.audio.play('pickup', 0.3);
+                break;
+            }
+
+            case 'merged': {
+                const nr = RARITIES[msg.newRarity];
+                const cfg = ORBITAL_TYPES[msg.newType];
+                if (nr && cfg) {
+                    this.game.showToast(`Merged into ${nr.name} ${cfg.name}!`, nr.color, true);
+                    this.game.audio.play('rare', 0.6);
+                }
+                break;
+            }
+
             case 'pong': {
                 this.pingMs = Date.now() - this.lastPingTime;
                 break;
@@ -225,20 +261,40 @@ class PVPClient {
     }
 
     // ─── Input Sending ───
-    sendInput(dx, dy, dash) {
+    sendInput(dx, dy, dash, extend, retract) {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-        // Only send if input changed (or dash)
-        if (dx === this.lastInputDx && dy === this.lastInputDy && !dash) return;
+        // Only send if input changed
+        if (dx === this.lastInputDx && dy === this.lastInputDy && !dash
+            && extend === this.lastInputExtend && retract === this.lastInputRetract) return;
         this.lastInputDx = dx;
         this.lastInputDy = dy;
+        this.lastInputExtend = extend;
+        this.lastInputRetract = retract;
 
         this.ws.send(JSON.stringify({
             type: 'input',
             dx: +dx.toFixed(3),
             dy: +dy.toFixed(3),
             dash: dash || false,
+            extend: extend || false,
+            retract: retract || false,
         }));
+    }
+
+    sendEquip(invItemId) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        this.ws.send(JSON.stringify({ type: 'equip', invId: invItemId }));
+    }
+
+    sendUnequip(orbIndex) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        this.ws.send(JSON.stringify({ type: 'unequip', orbIndex }));
+    }
+
+    sendMerge(petalType, rarity) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        this.ws.send(JSON.stringify({ type: 'merge', petalType, rarity }));
     }
 
     // ─── Getters for Rendering ───

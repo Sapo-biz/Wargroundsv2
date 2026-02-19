@@ -87,6 +87,7 @@ class UIManager {
             pvpHud: document.getElementById('pvpHud'),
             petalShopScreen: document.getElementById('petalShopScreen'),
             petalShopGrid: document.getElementById('petalShopGrid'),
+            gameplayUI: document.getElementById('gameplayUI'),
         };
         this._currentShopTab = 'divine';
         this.tutorialStep = 0;
@@ -197,6 +198,10 @@ class UIManager {
         });
         this.elements.hud.classList.toggle('hidden', screen !== null && screen !== 'levelUpScreen');
         this.elements.pvpHud.classList.add('hidden');
+        // Hide gameplay UI (inventory/slots/minimap) unless in-game
+        if (screen !== null && screen !== 'levelUpScreen') {
+            this.elements.gameplayUI.classList.add('hidden');
+        }
 
         if (screen === 'mainMenu') this.renderMainMenu();
         if (screen === 'upgradeShop') this.renderShop();
@@ -416,6 +421,7 @@ class UIManager {
     showHUD() {
         this.hideAllScreens();
         this.elements.hud.classList.remove('hidden');
+        this.elements.gameplayUI.classList.remove('hidden');
         this.showModPanel();
     }
 
@@ -512,6 +518,7 @@ class UIManager {
         ['mainMenu', 'upgradeShop', 'achievementScreen', 'levelUpScreen', 'deathScreen', 'permStashScreen', 'preRunScreen', 'dropRateScreen', 'petalInfoScreen', 'skinScreen', 'pvpScreen', 'pvpVictoryScreen', 'petalShopScreen'].forEach(s => {
             this.elements[s].classList.add('hidden');
         });
+        this.elements.gameplayUI.classList.add('hidden');
         this.hideModPanel();
         this.hideUpsellOverlay();
     }
@@ -1184,27 +1191,59 @@ class UIManager {
         this.elements.orbitalSlots.innerHTML = html;
     }
 
+    // Render orbital slots from server state (PVP mode)
+    renderPVPOrbitalSlots(orbitals, maxSlots) {
+        let html = '';
+        const numSlots = maxSlots || 8;
+        for (let i = 0; i < numSlots; i++) {
+            if (i < orbitals.length) {
+                const o = orbitals[i];
+                const cfg = ORBITAL_TYPES[o.t];
+                const r = RARITIES[o.ra];
+                if (!cfg || !r) continue;
+                const reloading = o.rl;
+                const opacity = reloading ? '0.3' : '1';
+                html += `<div class="orbital-slot filled" data-slot="${i}" style="border-color: ${r.color}60; box-shadow: 0 0 8px ${r.color}30; opacity: ${opacity}" title="[${i + 1}] ${r.name} ${cfg.name}\nPress ${i + 1} to store">
+                    <span class="slot-number">${i + 1}</span>
+                    <span style="font-size: 1.5rem">${cfg.icon}</span>
+                    <span class="orbital-rarity-dot" style="background: ${r.color}"></span>
+                </div>`;
+            } else {
+                html += `<div class="orbital-slot empty" data-slot="${i}"><span style="color: #333; font-size: 1.2rem">+</span></div>`;
+            }
+        }
+        this.elements.orbitalSlots.innerHTML = html;
+    }
+
     // ─── Number keys 1-9 to move loadout slot → inventory ───
     setupSlotKeys() {
         window.addEventListener('keydown', (e) => {
             const game = this.game;
-            if (game.state !== 'playing' || game.paused) return;
             const num = parseInt(e.key);
-            if (num >= 1 && num <= 9) {
-                const player = game.player;
-                if (!player) return;
+            if (!(num >= 1 && num <= 9)) return;
+
+            // PVP mode — send unequip to server
+            if (game.state === 'pvp' && game.pvpClient && game.pvpClient.connected) {
                 const idx = num - 1;
-                if (idx < player.orbitals.length) {
-                    const removed = player.removeOrbital(idx);
-                    if (removed) {
-                        game.inventory.push({ type: removed.type, rarity: removed.rarity, id: game.nextInvId++ });
-                        const cfg = ORBITAL_TYPES[removed.type];
-                        const r = RARITIES[removed.rarity];
-                        game.showToast(`Stored ${r.name} ${cfg.name} in inventory`, r.color, false);
-                        game.audio.play('pickup', 0.3);
-                        this.renderOrbitalSlots(player);
-                        this.renderInventory();
-                    }
+                game.pvpClient.sendUnequip(idx);
+                return;
+            }
+
+            // Wave mode
+            if (game.state !== 'playing' || game.paused) return;
+            const player = game.player;
+            if (!player) return;
+            const idx = num - 1;
+            if (idx < player.orbitals.length) {
+                const removed = player.removeOrbital(idx);
+                if (removed) {
+                    game.inventory.push({ type: removed.type, rarity: removed.rarity, id: game.nextInvId++ });
+                    const cfg = ORBITAL_TYPES[removed.type];
+                    const r = RARITIES[removed.rarity];
+                    game.showToast(`Stored ${r.name} ${cfg.name} in inventory`, r.color, false);
+                    game.audio.play('pickup', 0.3);
+                    this.renderOrbitalSlots(player);
+                    this.renderInventory();
                 }
             }
         });
@@ -1268,6 +1307,13 @@ class UIManager {
             btn.onclick = () => {
                 const type = btn.dataset.type;
                 const rarity = btn.dataset.rarity;
+
+                // PVP mode — send merge to server
+                if (game.state === 'pvp' && game.pvpClient && game.pvpClient.connected) {
+                    game.pvpClient.sendMerge(type, rarity);
+                    return;
+                }
+
                 const ri = RARITY_ORDER.indexOf(rarity);
                 if (ri < 0 || ri >= RARITY_ORDER.length - 1) return;
 
@@ -1304,10 +1350,19 @@ class UIManager {
 
         items.forEach(item => {
             item.addEventListener('click', () => {
+                const invId = item.dataset.invId;
+
+                // PVP mode — send equip to server
+                if (game.state === 'pvp' && game.pvpClient && game.pvpClient.connected) {
+                    game.pvpClient.sendEquip(invId);
+                    return;
+                }
+
+                // Wave mode
                 const player = game.player;
                 if (!player) return;
-                const invId = parseInt(item.dataset.invId);
-                const invIdx = game.inventory.findIndex(i => i.id === invId);
+                const numId = parseInt(invId);
+                const invIdx = game.inventory.findIndex(i => i.id === numId);
                 if (invIdx < 0) return;
 
                 if (player.orbitals.length < player.maxSlots) {
@@ -1372,6 +1427,76 @@ class UIManager {
         mctx.strokeStyle = 'rgba(255,255,255,0.3)';
         mctx.lineWidth = 1;
         mctx.strokeRect(vx, vy, vw, vh);
+    }
+
+    // ─── PVP Minimap ───
+    renderPVPMinimap() {
+        const game = this.game;
+        const client = game.pvpClient;
+        if (!client || !client.connected) return;
+
+        const mc = document.getElementById('minimap');
+        const mctx = mc.getContext('2d');
+        const arenaSize = game.pvpArenaSize || 2000;
+        const scale = mc.width / arenaSize;
+
+        // Arena center (server uses CONFIG.WORLD_SIZE/2 as center)
+        const wcx = CONFIG.WORLD_SIZE / 2;
+        const wcy = CONFIG.WORLD_SIZE / 2;
+        const halfArena = arenaSize / 2;
+
+        mctx.fillStyle = '#0a0a1a';
+        mctx.fillRect(0, 0, mc.width, mc.height);
+
+        // Arena boundary
+        mctx.strokeStyle = game.pvpZone ? game.pvpZone.color + '40' : 'rgba(255,255,255,0.15)';
+        mctx.lineWidth = 1;
+        mctx.strokeRect(0, 0, mc.width, mc.height);
+
+        // Mobs (yellow dots)
+        mctx.fillStyle = '#ffaa00';
+        for (const m of client.mobs) {
+            const mx = (m.x - wcx + halfArena) * scale;
+            const my = (m.y - wcy + halfArena) * scale;
+            mctx.fillRect(mx - 1, my - 1, 2, 2);
+        }
+
+        // Other players/bots (red dots)
+        for (const p of client.players) {
+            if (p.id === client.playerId || p.d) continue;
+            const px = (p.x - wcx + halfArena) * scale;
+            const py = (p.y - wcy + halfArena) * scale;
+            mctx.fillStyle = p.b ? '#ff8888' : '#ff4444'; // bots lighter
+            mctx.fillRect(px - 1.5, py - 1.5, 3, 3);
+        }
+
+        // Orbs (small green dots)
+        mctx.fillStyle = '#4ade80';
+        for (const o of client.orbs) {
+            const ox = (o.x - wcx + halfArena) * scale;
+            const oy = (o.y - wcy + halfArena) * scale;
+            mctx.fillRect(ox - 0.5, oy - 0.5, 1, 1);
+        }
+
+        // My player (cyan dot)
+        const me = client.getMyPlayer();
+        if (me && !me.d) {
+            const px = (me.x - wcx + halfArena) * scale;
+            const py = (me.y - wcy + halfArena) * scale;
+            mctx.fillStyle = '#00ccff';
+            mctx.beginPath();
+            mctx.arc(px, py, 3, 0, Math.PI * 2);
+            mctx.fill();
+        }
+
+        // Viewport box
+        const camX = (game.camera.x - wcx + halfArena) * scale;
+        const camY = (game.camera.y - wcy + halfArena) * scale;
+        const vw = canvas.width * scale;
+        const vh = canvas.height * scale;
+        mctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        mctx.lineWidth = 1;
+        mctx.strokeRect(camX - vw / 2, camY - vh / 2, vw, vh);
     }
 
     // ─── Toast Notifications ───
@@ -1600,6 +1725,7 @@ class UIManager {
         this.hideAllScreens();
         this.elements.hud.classList.add('hidden');
         this.elements.pvpHud.classList.remove('hidden');
+        this.elements.gameplayUI.classList.remove('hidden');
         // Set zone label
         const zone = this.game.pvpZone;
         const lbl = document.getElementById('pvpZoneLabel');

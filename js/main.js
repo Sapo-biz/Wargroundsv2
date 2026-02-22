@@ -767,6 +767,44 @@ class Game {
         }
         this.camera.update(dt);
 
+        // Client-side particle trail for own player (matching wave mode)
+        if (me && !me.d && (move.dx !== 0 || move.dy !== 0)) {
+            this._pvpTrailTimer = (this._pvpTrailTimer || 0) - dt;
+            if (this._pvpTrailTimer <= 0) {
+                this._pvpTrailTimer = 0.05;
+                const skinId = this.saveData ? this.saveData.activeSkin : 'default';
+                const skin = PLAYER_SKINS.find(s => s.id === skinId) || PLAYER_SKINS[0];
+                const trailCol = skin.trailColor === 'prism' ? `hsl(${(Date.now() * 0.15) % 360}, 85%, 60%)` : skin.trailColor;
+                const myPos = client.getInterpolatedPos(me);
+                this.particles.trail(myPos.x, myPos.y, trailCol, 3);
+            }
+        }
+
+        // Client-side dash particles when dash detected (big position jump)
+        if (me && !me.d) {
+            const myPos = client.getInterpolatedPos(me);
+            if (this._pvpLastX !== undefined) {
+                const jumpDist = Math.hypot(myPos.x - this._pvpLastX, myPos.y - this._pvpLastY);
+                if (jumpDist > 40) { // dash detected
+                    this.particles.burst(myPos.x, myPos.y, 8, '#00ffff', 200, 0.3, 4);
+                }
+            }
+            this._pvpLastX = myPos.x;
+            this._pvpLastY = myPos.y;
+        }
+
+        // Advance orbital angles client-side for smooth rotation
+        const orbSpeed = CONFIG.BASE_ORBITAL_SPEED;
+        for (const p of (client.players || [])) {
+            if (p.d) continue;
+            const orbs = p.orbs || [];
+            for (const o of orbs) {
+                if (!o.rl) {
+                    o.a += orbSpeed * dt;
+                }
+            }
+        }
+
         // Particles
         this.particles.update(dt);
 
@@ -1316,7 +1354,7 @@ class Game {
             const msy = cam.screenY(mob.y);
             const mr = mob.r || 20;
             const etype = ENEMY_TYPES[mob.k];
-            const mobColor = etype ? etype.color : '#ff4444';
+            const mobColor = mob.c || (etype ? etype.color : '#ff4444');
             const mobShape = mob.s || (etype ? etype.shape : 'circle');
             const isBoss = mr > 30; // heuristic: bosses are large
 
@@ -1357,14 +1395,15 @@ class Game {
             }
         }
 
-        // Draw projectiles from server state (with glow)
+        // Draw projectiles from server state (matching wave-mode Projectile.draw)
         const projs = client.projectiles || [];
         for (const p of projs) {
             const psx = cam.screenX(p.x);
             const psy = cam.screenY(p.y);
-            drawGlow(ctx, psx, psy, 6, '#ffaa00', 0.4);
-            drawCircle(ctx, psx, psy, 4, '#ffaa00');
-            drawCircle(ctx, psx, psy, 2, '#ffffff', 0.8);
+            const pColor = p.c || '#ffaa00';
+            const pSize = p.sz || 4;
+            drawGlow(ctx, psx, psy, pSize, pColor, 0.5);
+            drawCircle(ctx, psx, psy, pSize, pColor);
         }
 
         // Draw all players/bots from server state (matching wave-mode Player.draw + Orbital.draw)
@@ -1391,6 +1430,16 @@ class Game {
                 highlightCol = skin.highlightColor;
             }
 
+            // Pickup range indicator (own player only, drawn before invuln/flash — matching wave mode)
+            if (isMe) {
+                ctx.globalAlpha = 0.05;
+                ctx.beginPath();
+                ctx.arc(psx, psy, 80, 0, Math.PI * 2); // CONFIG.BASE_PICKUP_RANGE
+                ctx.fillStyle = '#00ffcc';
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
             // Invuln override
             if (p.inv) {
                 bodyColor = '#ffffff';
@@ -1414,7 +1463,7 @@ class Game {
 
             // Dash cooldown ring (server sends dc = dashCooldown remaining)
             if (p.dc > 0) {
-                const pct = 1 - (p.dc / 3); // 3s total cooldown
+                const pct = 1 - (p.dc / 0.3); // 0.3s total cooldown (matching wave mode)
                 ctx.globalAlpha = 0.4;
                 ctx.strokeStyle = '#00ffff';
                 ctx.lineWidth = 2;
